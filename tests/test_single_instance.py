@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import applauncher
-from ui.tray import TrayMixin
+from ui.lifecycle import LifecycleMixin
 
 
 class SingleInstanceTest(unittest.TestCase):
@@ -67,7 +67,7 @@ class SingleInstanceTest(unittest.TestCase):
 		stub = SimpleNamespace(
 			_instance_sock=srv, _alive=True, _queue=queue.Queue()
 		)
-		TrayMixin._start_instance_listener(stub)
+		LifecycleMixin._start_instance_listener(stub)
 		# simule le 'show' d'un second lancement
 		s = socket.socket(socket.AF_UNIX)
 		s.connect(str(self._path))

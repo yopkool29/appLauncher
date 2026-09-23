@@ -8,10 +8,11 @@ from functools import partial
 from tkinter import filedialog, messagebox, ttk
 from typing import Generic, Optional, TypeVar
 
-from core import manager
 from core import ports as portscan
 from core import tmux
-from core.config import App, Process, load_pref, save_pref
+from core.config import (
+	App, Process, default_logs_dir, load_pref, save_pref,
+)
 
 T = TypeVar("T")
 
@@ -463,6 +464,10 @@ class LauncherLogDialog(_Modal[None]):
 	def __init__(self, parent: tk.Misc) -> None:
 		super().__init__(parent, "Launcher log", modal=False)
 		self._size = -1
+		self._log_file = (
+			getattr(parent, "logs_dir", default_logs_dir())
+			/ "applauncher.log"
+		)
 
 		top = ttk.Frame(self, padding=(6, 6, 6, 0))
 		top.pack(fill=tk.X)
@@ -497,7 +502,7 @@ class LauncherLogDialog(_Modal[None]):
 
 	def _load(self) -> None:
 		try:
-			path = manager.LOGS_DIR / "applauncher.log"
+			path = self._log_file
 			size = path.stat().st_size
 			if size == self._size:
 				return
@@ -511,7 +516,7 @@ class LauncherLogDialog(_Modal[None]):
 
 	def _clear(self) -> None:
 		try:
-			(manager.LOGS_DIR / "applauncher.log").write_bytes(b"")
+			self._log_file.write_bytes(b"")
 		except OSError:
 			pass
 		self._size = 0

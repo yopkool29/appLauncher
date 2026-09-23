@@ -128,7 +128,9 @@ class EditMixin(tk.Tk):
 		except OSError as exc:
 			messagebox.showerror("Save", f"Cannot write config: {exc}")
 		self._reload_tree()
-		self._collect_snapshot()
+		threading.Thread(
+			target=self._collect_snapshot, daemon=True
+		).start()
 
 	def _refresh_all(self) -> None:
 		"""F5 : recharge apps.yaml depuis le disque + refresh statuts."""

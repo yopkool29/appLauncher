@@ -26,8 +26,6 @@ from . import ports as portscan
 log = logging.getLogger(__name__)
 
 
-LOGS_DIR = default_logs_dir()
-
 STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
 STATUS_EXTERNAL = "external"   # ports declares occupes, mais pas lance par l'outil
@@ -53,7 +51,8 @@ class _ProcRuntime:
 
 
 class ProcessManager:
-	def __init__(self) -> None:
+	def __init__(self, logs_dir: Optional[Path] = None) -> None:
+		self.logs_dir = logs_dir or default_logs_dir()
 		self._runtimes: Dict[Tuple[str, str], _ProcRuntime] = {}
 		# liste ordonnee des apps (mutee en place par l'UI) :
 		# sert a resoudre le groupe tmux des apps 'shared'
@@ -63,7 +62,10 @@ class ProcessManager:
 		self._apps = apps
 
 	def log_path(self, app: App, proc: Process) -> Path:
-		return LOGS_DIR / safe_name(app.name) / f"{safe_name(proc.name)}.log"
+		return (
+			self.logs_dir / safe_name(app.name)
+			/ f"{safe_name(proc.name)}.log"
+		)
 
 	@staticmethod
 	def _rt_alive(rt: _ProcRuntime) -> bool:
@@ -269,13 +271,15 @@ class ProcessManager:
 			self._kill_tree(rt.popen.pid)
 			msg = msg or f"{proc.name} stopped"
 
+		ok = True
 		if (
 			rt is None and not proc.tmux and not proc.is_docker
 			and proc.ports
 		):
 			# proc externe/orphelin (autre instance, process manuel) :
 			# libere aussi les ports occupes, sinon le stop ne fait rien
-			self.stop_external(app, proc)
+			ok, ext_msg = self.stop_external(app, proc)
+			msg = ext_msg or msg
 
 		if rt is not None:
 			if rt.log_handle is not None:
@@ -286,7 +290,7 @@ class ProcessManager:
 			self._runtimes.pop(key, None)
 		msg = msg or f"{proc.name}: nothing to stop"
 		log.info(msg)
-		return True, msg
+		return ok, msg
 
 	def restart(self, app: App, proc: Process) -> Tuple[bool, str]:
 		self.stop(app, proc)
@@ -314,7 +318,8 @@ class ProcessManager:
 		return True, msg
 
 	def _each(self, app: App, fn, delay: float = 0.0) -> None:
-		for proc in app.processes:
+		procs = app.processes
+		for i, proc in enumerate(procs):
 			try:
 				fn(app, proc)
 			except Exception as exc:
@@ -322,7 +327,8 @@ class ProcessManager:
 					"%s/%s: %s error (%s)",
 					app.name, proc.name, fn.__name__, exc,
 				)
-			time.sleep(delay)
+			if delay and i < len(procs) - 1:
+				time.sleep(delay)
 
 	def stop_app(self, app: App) -> None:
 		self._each(app, self.stop)

@@ -8,7 +8,7 @@ import webbrowser
 from functools import partial
 from tkinter import ttk
 
-from ui.actions import app_urls
+from core.browser import app_urls
 from ui.tray import ICON_PATH
 
 from core import tmux

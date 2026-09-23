@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.config import default_config_path, default_logs_dir
 from core.logging_helpers import setup_logging
-import core.manager as manager
 from ui.main_window import MainWindow
 
 
@@ -61,12 +60,11 @@ def main() -> None:
 		help="directory for process logs and applauncher.log",
 	)
 	args = parser.parse_args()
-	manager.LOGS_DIR = args.logs_dir
 	setup_logging(args.logs_dir / "applauncher.log")
 	srv = _instance_socket()
 	if srv is None:
 		return
-	win = MainWindow(args.config, srv)
+	win = MainWindow(args.config, srv, args.logs_dir)
 	win.mainloop()
 	logging.getLogger(__name__).info("mainloop exited")
 	# os._exit : saute la finalisation de l'interpreteur, qui peut bloquer

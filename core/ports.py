@@ -9,7 +9,7 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import psutil
 
@@ -23,28 +23,29 @@ class PortInfo:
 	process: str
 
 
-_caches: Dict[str, tuple] = {}  # nom -> (ts, valeur)
-_docker_cache_ts: float = 0.0
-_docker_cache: List[dict] = []
+_caches: Dict[Any, tuple] = {}  # cle -> (ts, valeur)
 
 CACHE_TTL = 1.0
 LISTEN_TTL = 4.0  # all_listening : partage onglet Ports + Prefs
+_SVC_TTL = 30.0   # compose_services : docker compose config est cher
 
 
-def _cached(key: str, ttl: float, fn):
-	"""Cache TTL generique : fn() n'est re-evalue que si perime."""
+def _cached(key: Any, ttl: float, fn):
+	"""Cache TTL generique : fn(old) n'est re-evalue que si perime.
+	'old' = derniere valeur connue — fn peut la renvoyer en cas
+	d'echec (resultat d'erreur mis en cache comme un succes)."""
 	ts, val = _caches.get(key, (0.0, None))
 	if time.time() - ts >= ttl:
-		val = fn()
+		val = fn(val)
 		_caches[key] = (time.time(), val)
 	return val
 
 
-def _net_scan() -> list:
+def _net_scan(_old=None) -> list:
 	try:
 		return psutil.net_connections(kind="all")
 	except psutil.Error:
-		return []
+		return _old or []
 
 
 def _conns() -> list:
@@ -75,7 +76,7 @@ def _proc_name(pid: int) -> str:
 		return "?"
 
 
-def _scan_listening() -> List[PortInfo]:
+def _scan_listening(_old=None) -> List[PortInfo]:
 	result: Dict[tuple, PortInfo] = {}
 	for c in _conns():
 		proto = _proto(c)
@@ -104,7 +105,7 @@ def all_listening() -> List[PortInfo]:
 _SOCK_RE = re.compile(r"socket:\[(\d+)\]")
 
 
-def _parse_socket_ports() -> Dict[str, Tuple[int, str]]:
+def _parse_socket_ports(_old=None) -> Dict[str, Tuple[int, str]]:
 	out: Dict[str, Tuple[int, str]] = {}
 	for f, proto, listen_only in (
 		("/proc/net/tcp", "tcp", True),
@@ -178,10 +179,12 @@ def pids_on_ports(ports: List[int]) -> List[int]:
 
 def docker_containers() -> List[dict]:
 	"""Conteneurs en cours : name, image, host_ports, workdir (label compose)."""
-	global _docker_cache_ts, _docker_cache
-	now = time.time()
-	if now - _docker_cache_ts < CACHE_TTL:
-		return _docker_cache
+	return _cached("docker", CACHE_TTL, _scan_docker)
+
+
+def _scan_docker(old: Optional[List[dict]]) -> List[dict]:
+	"""`docker ps` parse ; 'old' garde la derniere liste connue si
+	la commande echoue (binaire absent, timeout)."""
 	try:
 		out = subprocess.run(
 			["docker", "ps", "--format", "{{json .}}"],
@@ -190,10 +193,8 @@ def docker_containers() -> List[dict]:
 			timeout=8,
 		)
 	except (OSError, subprocess.TimeoutExpired):
-		return _docker_cache
+		return old or []
 	if out.returncode != 0:
-		_docker_cache = []
-		_docker_cache_ts = now
 		return []
 	containers: List[dict] = []
 	for line in out.stdout.splitlines():
@@ -220,8 +221,6 @@ def docker_containers() -> List[dict]:
 			"project": labels.get("com.docker.compose.project", ""),
 			"service": labels.get("com.docker.compose.service", ""),
 		})
-	_docker_cache = containers
-	_docker_cache_ts = now
 	return containers
 
 
@@ -234,17 +233,16 @@ def _same_dir(a: str, b: str) -> bool:
 		return a == b
 
 
-_svc_cache: Dict[tuple, tuple] = {}
-_SVC_TTL = 30.0
-
-
 def compose_services(workdir: str, cmd: str) -> Set[str]:
 	"""Noms de services declares dans les compose files de la commande
 	(fait foi meme sans conteneur running)."""
-	key = (os.path.realpath(workdir or "."), cmd)
-	ts, cached = _svc_cache.get(key, (0.0, set()))
-	if time.time() - ts < _SVC_TTL:
-		return cached
+	key = ("svc", os.path.realpath(workdir or "."), cmd)
+	return _cached(
+		key, _SVC_TTL, lambda old: _scan_services(workdir, cmd, old)
+	)
+
+
+def _scan_services(workdir: str, cmd: str, old: Optional[Set[str]]) -> Set[str]:
 	try:
 		args = shlex.split(cmd)
 	except ValueError:
@@ -267,8 +265,7 @@ def compose_services(workdir: str, cmd: str) -> Set[str]:
 			services = set(out.stdout.split())
 	except (OSError, subprocess.TimeoutExpired):
 		pass
-	_svc_cache[key] = (time.time(), services or cached)
-	return services or cached
+	return services or (old or set())
 
 
 def containers_for_proc(name: str, workdir: str, cmd: str = "") -> List[dict]:

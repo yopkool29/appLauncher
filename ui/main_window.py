@@ -15,15 +15,18 @@ from core import tmux
 from core.config import (
 	App,
 	Process,
+	default_logs_dir,
 	load_config,
 	load_pref,
 	load_window_config,
 	save_pref,
 )
+from core.browser import browsers
 from core.manager import ProcessManager, ProcStatus
-from ui.actions import BROWSERS, ActionsMixin
+from ui.actions import ActionsMixin
 from ui.dialogs import LauncherLogDialog, PrefsDialog
 from ui.editing import EditMixin
+from ui.lifecycle import LifecycleMixin
 from ui.logs import LogsMixin
 from ui.menus import MenuMixin
 from ui.polling import PollMixin
@@ -84,10 +87,12 @@ class MainWindow(
 	PollMixin,
 	ThemeMixin,
 	TrayMixin,
+	LifecycleMixin,
 	tk.Tk,
 ):
 	def __init__(
-		self, config_path: Path, instance_sock=None
+		self, config_path: Path, instance_sock=None,
+		logs_dir: Optional[Path] = None,
 	) -> None:
 		super().__init__(className="applauncher")
 		self.title("App Launcher")
@@ -102,8 +107,9 @@ class MainWindow(
 			self.minsize(MIN_W, MIN_H)
 
 		self.config_path = config_path
+		self.logs_dir = logs_dir or default_logs_dir()
 		self.apps: List[App] = load_config(config_path)
-		self.manager = ProcessManager()
+		self.manager = ProcessManager(self.logs_dir)
 		self.manager.set_apps(self.apps)
 		self._queue: queue.Queue = queue.Queue()
 		self._snapshot: Dict[Tuple[str, str], ProcStatus] = {}
@@ -142,10 +148,10 @@ class MainWindow(
 		self._init_themes()
 		browser = load_pref("browser", "")
 		# compat ancienne pref ("firefox") -> nouvelle cle ("Firefox ...")
-		if browser not in BROWSERS:
+		if browser not in browsers():
 			browser = next(
-				(k for k in BROWSERS if browser.lower() in k.lower()),
-				next(iter(BROWSERS), ""),
+				(k for k in browsers() if browser.lower() in k.lower()),
+				next(iter(browsers()), ""),
 			)
 		self._browser_var = tk.StringVar(value=browser)
 
@@ -248,7 +254,7 @@ class MainWindow(
 		browser_combo = ttk.Combobox(
 			toolbar,
 			textvariable=self._browser_var,
-			values=tuple(BROWSERS),
+			values=tuple(browsers()),
 			state="readonly",
 			width=14,
 		)
