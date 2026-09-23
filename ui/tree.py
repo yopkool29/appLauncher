@@ -8,6 +8,7 @@ import tkinter as tk
 from typing import Dict, List, Optional, Tuple
 
 from core import ports as portscan
+from core import tmux
 from core.config import App, Process, save_pref
 from core.manager import (
 	STATUS_EXTERNAL,
@@ -261,6 +262,8 @@ class TreeMixin(tk.Tk):
 
 	def _on_cell_click(self, event) -> Optional[str]:
 		"""Clic sur la cellule tmux -> toggle 'Run in tmux' (colonne #2)."""
+		if not tmux.TMUX_OK:
+			return None  # colonne masquee : #2 = browser, pas de toggle
 		if (
 			self.tree.identify_region(event.x, event.y) != "cell"
 			or self.tree.identify_column(event.x) != "#2"

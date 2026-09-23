@@ -263,7 +263,9 @@ class ProcessManager:
 				tmux.retile(
 					rt.tmux, tmux.window_key(app, proc), app.tmux_layout
 				)
-		elif rt is not None and rt.popen is not None and rt.popen.poll() is None:
+		# independent du bloc tmux : un proc declare tmux lance en
+		# fallback Popen (tmux absent) doit quand meme etre tue
+		if rt is not None and rt.popen is not None and rt.popen.poll() is None:
 			self._kill_tree(rt.popen.pid)
 			msg = msg or f"{proc.name} stopped"
 

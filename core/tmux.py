@@ -1,6 +1,7 @@
 """Integration tmux : session 'al-<app>', un pane par processus."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,7 +9,11 @@ from typing import List, Optional, Tuple
 
 from .config import App, Process, safe_name
 
-TMUX_OK = shutil.which("tmux") is not None
+# APPLAUNCHER_NO_TMUX=1 : force le mode "sans tmux" (tests)
+TMUX_OK = (
+	shutil.which("tmux") is not None
+	and os.getenv("APPLAUNCHER_NO_TMUX") != "1"
+)
 
 # layout tmux par app : (select-layout, split -h ?)
 TMUX_LAYOUTS = {

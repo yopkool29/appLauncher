@@ -10,6 +10,7 @@ from typing import Generic, Optional, TypeVar
 
 from core import manager
 from core import ports as portscan
+from core import tmux
 from core.config import App, Process, load_pref, save_pref
 
 T = TypeVar("T")
@@ -238,28 +239,29 @@ class AppDialog(_Modal[App]):
 			ttk.Label(body, text=label).grid(row=row, column=0, sticky=tk.W, pady=3)
 			ttk.Entry(body, textvariable=var, width=42).grid(row=row, column=1, pady=3)
 		row = len(rows)
-		ttk.Label(body, text="tmux:").grid(
-			row=row, column=0, sticky=tk.W, pady=3
-		)
-		tm = ttk.Frame(body)
-		tm.grid(row=row, column=1, sticky=tk.W)
-		ttk.Checkbutton(
-			tm, text="Join previous session (shared)",
-			variable=self._tmux_shared,
-		).pack(side=tk.LEFT)
-		ttk.Checkbutton(
-			tm, text="Attach new terminal window",
-			variable=self._tmux_attach,
-		).pack(side=tk.LEFT, padx=(10, 0))
-		row += 1
-		ttk.Label(body, text="tmux layout:").grid(
-			row=row, column=0, sticky=tk.W, pady=3
-		)
-		ttk.Combobox(
-			body, textvariable=self._layout, state="readonly", width=40,
-			values=list(dict.fromkeys(TMUX_LAYOUT_LABELS.values())),
-		).grid(row=row, column=1, pady=3)
-		row += 1
+		if tmux.TMUX_OK:
+			ttk.Label(body, text="tmux:").grid(
+				row=row, column=0, sticky=tk.W, pady=3
+			)
+			tm = ttk.Frame(body)
+			tm.grid(row=row, column=1, sticky=tk.W)
+			ttk.Checkbutton(
+				tm, text="Join previous session (shared)",
+				variable=self._tmux_shared,
+			).pack(side=tk.LEFT)
+			ttk.Checkbutton(
+				tm, text="Attach new terminal window",
+				variable=self._tmux_attach,
+			).pack(side=tk.LEFT, padx=(10, 0))
+			row += 1
+			ttk.Label(body, text="tmux layout:").grid(
+				row=row, column=0, sticky=tk.W, pady=3
+			)
+			ttk.Combobox(
+				body, textvariable=self._layout, state="readonly", width=40,
+				values=list(dict.fromkeys(TMUX_LAYOUT_LABELS.values())),
+			).grid(row=row, column=1, pady=3)
+			row += 1
 		ttk.Checkbutton(
 			body,
 			text="Exclude from Start all / Stop all (manual only)",
@@ -380,20 +382,28 @@ class ProcessDialog(_Modal[Process]):
 			text="Docker process (docker run / docker compose)",
 			variable=self._docker,
 		).grid(row=len(rows), column=1, sticky=tk.W, pady=3)
-		tmux_row = ttk.Frame(body)
-		tmux_row.grid(row=len(rows) + 1, column=1, sticky=tk.W, pady=3)
-		ttk.Checkbutton(
-			tmux_row,
-			text="Run in tmux (attachable via `tmux attach`)",
-			variable=self._tmux,
-		).pack(side=tk.LEFT)
-		ttk.Label(tmux_row, text="window:").pack(side=tk.LEFT, padx=(10, 2))
-		ttk.Spinbox(
-			tmux_row, from_=0, to=19, width=3,
-			textvariable=self._tmux_window,
-		).pack(side=tk.LEFT)
+		if tmux.TMUX_OK:
+			tmux_row = ttk.Frame(body)
+			tmux_row.grid(
+				row=len(rows) + 1, column=1, sticky=tk.W, pady=3
+			)
+			ttk.Checkbutton(
+				tmux_row,
+				text="Run in tmux (attachable via `tmux attach`)",
+				variable=self._tmux,
+			).pack(side=tk.LEFT)
+			ttk.Label(tmux_row, text="window:").pack(
+				side=tk.LEFT, padx=(10, 2)
+			)
+			ttk.Spinbox(
+				tmux_row, from_=0, to=19, width=3,
+				textvariable=self._tmux_window,
+			).pack(side=tk.LEFT)
 		browser_row = ttk.Frame(body)
-		browser_row.grid(row=len(rows) + 2, column=1, sticky=tk.W, pady=3)
+		browser_row.grid(
+			row=len(rows) + (2 if tmux.TMUX_OK else 1),
+			column=1, sticky=tk.W, pady=3,
+		)
 		ttk.Label(browser_row, text="browser:").pack(side=tk.LEFT, padx=(0, 4))
 		ttk.Combobox(
 			browser_row,

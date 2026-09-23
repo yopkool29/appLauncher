@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from core import tmux
 from core.config import (
 	App,
 	Process,
@@ -261,6 +262,13 @@ class MainWindow(
 			self.tree.heading(col, text=label)
 			self.tree.column(
 				col, width=w, minwidth=mw, anchor=anchor, stretch=True
+			)
+		if not tmux.TMUX_OK:
+			# pas de tmux : colonne et interactions tmux masquees
+			self.tree.configure(
+				displaycolumns=(
+					"state", "browser", "pid", "ports", "uptime"
+				)
 			)
 		scroll = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self.tree.yview)
 		self.tree.configure(yscrollcommand=scroll.set)

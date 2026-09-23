@@ -128,7 +128,8 @@ class MenuMixin(tk.Tk):
 			item(f"Restart all ({n})",
 			     partial(self._run_each, app, procs, self.manager.restart))
 			if (
-				any(p.tmux for p in procs)
+				tmux.TMUX_OK
+				and any(p.tmux for p in procs)
 				and tmux.session_exists(
 					tmux.session_name(app, self.apps)
 				)
@@ -171,7 +172,7 @@ class MenuMixin(tk.Tk):
 						)
 					self._pad_menu(open_menu)
 					menu.add_cascade(label="Open port", menu=open_menu)
-			if proc.tmux and tmux.session_exists(
+			if proc.tmux and tmux.TMUX_OK and tmux.session_exists(
 				tmux.session_name(app, self.apps)
 			):
 				menu.add_separator()
