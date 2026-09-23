@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import subprocess
 import threading
 import time
 import tkinter as tk
 from pathlib import Path
 
+from core import ports as portscan
 from core.config import load_pref
 from core.manager import STATUS_RUNNING
 from ui.dialogs import L, confirm
@@ -280,8 +282,14 @@ class TrayMixin(tk.Tk):
 	# ---------------- Fermeture ----------------
 
 	def _stop_and_quit(self) -> None:
+		# la fenetre reste normale : le user voit les statuts passer
+		# a stopped pendant le polling de _wait_all_down, mais toute
+		# l'interface est gelee (tk busy) pour eviter les interactions
 		self._closing = True
-		self.withdraw()
+		try:
+			self.tk.call("tk", "busy", "hold", self._w)
+		except tk.TclError:
+			pass  # tk busy indispo -> degrade gracieux
 		self._run_action(self._stop_apps_then_quit)
 		self.after(35000, self._force_quit)
 
@@ -306,9 +314,39 @@ class TrayMixin(tk.Tk):
 			stuck = [t.name for t in threads if t.is_alive()]
 			if stuck:
 				log.warning(f"stops still running after deadline: {stuck}")
+			self._wait_all_down()
 		finally:
 			self._queue.put(("quit", None))
 			log.info("shutdown: quit signal sent")
+
+	def _wait_all_down(self, timeout: float = 20.0) -> None:
+		"""Poll jusqu'a ce que tout soit vraiment ferme : stop() rend
+		la main des que sa commande a tourne, pas quand le process
+		meurt et libere ses ports. A l'echeance, SIGKILL sur les pid
+		encore sur les ports declares (SIGTERM ignore)."""
+		def busy() -> list:
+			return [
+				f"{app.name}/{proc.name}"
+				for app in self.apps
+				for proc in app.processes
+				if self.manager.is_tracked(app, proc)
+				or any(portscan.port_listening(p) for p in proc.ports)
+			]
+		deadline = time.time() + timeout
+		left = busy()
+		while left and time.time() < deadline:
+			time.sleep(0.5)
+			left = busy()
+		if not left:
+			return
+		for app in self.apps:
+			for proc in app.processes:
+				for pid in portscan.pids_on_ports(proc.ports):
+					try:
+						os.kill(pid, signal.SIGKILL)
+					except (ProcessLookupError, PermissionError):
+						pass
+		log.warning(f"shutdown: force-killed stragglers: {left}")
 
 	def _destroy_now(self, idle: bool = False) -> None:
 		"""Chemin unique de destruction : watchdog externe + destroy."""

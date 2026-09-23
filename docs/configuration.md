@@ -71,10 +71,15 @@ URLs are deduplicated; an app-level `url`/`launch_port` pointing at a
 
 ## Logs
 
-- Process logs: `<logs-dir>/<app>/<proc>.log` (tmux panes included).
-- Launcher diagnostics: `<logs-dir>/applauncher.log` — *View > Launcher log*.
-- `<logs-dir>` resolution: `--logs-dir` > `APPLAUNCHER_LOGS` > repo
-  `logs/` (dev) > `$XDG_STATE_HOME/applauncher/logs`.
+- Every process writes to `<logs-dir>/<app>/<proc>.log`; docker
+  processes show `docker logs` instead. The **Logs** tab has a sub-tab
+  per process (auto-refresh) and *Clear* empties a log.
+- The launcher's diagnostics go to `<logs-dir>/applauncher.log`
+  (rotated, 2 MB × 5): starts/stops, `stop:` commands, config reloads,
+  errors. *View > Launcher log* shows it live.
+- Logs default to `logs/` next to the script (dev) or
+  `$XDG_STATE_HOME/applauncher/logs`; `--logs-dir` or
+  `APPLAUNCHER_LOGS` overrides.
 
 ## Shortcuts
 

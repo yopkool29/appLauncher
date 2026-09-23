@@ -4,9 +4,14 @@
 
 # App Launcher
 
-Desktop tool (Python + tkinter) to centralize start/stop of local apps:
+Desktop tool for Linux (Python + tkinter) to centralize start/stop
+of local apps:
 each app groups one or more processes (bash commands, `docker compose`,
 `docker run`...), with live status, detected ports and per-process logs.
+
+All your applications in one place: start them in one click without
+digging through directories, see at a glance which ports are in use
+and who owns them, open the app in your browser directly.
 
 <p align="center">
   <img src="docs/image.png" alt="App Launcher screenshot">
@@ -19,16 +24,11 @@ pip install -r requirements.txt   # PyYAML + psutil + sv_ttk + pystray + Pillow
 python3 applauncher.py
 ```
 
-The app catalog is loaded from the first existing location, in order:
+To launch it from your desktop menu instead, copy
+[`applauncher.desktop`](applauncher.desktop) (example — fix the
+`Exec`/`Icon` paths) to `~/.local/share/applications/`.
 
-1. `--config <path>` (command-line flag)
-2. `$APPLAUNCHER_CONFIG` (environment variable)
-3. `./apps.yaml`, next to `applauncher.py` (dev checkout)
-4. `~/.config/applauncher/apps.yaml` (installed)
-
-`apps.yaml` is your personal catalog — it is gitignored and never
-pushed. `tkinter` ships with Python; `docker` and `tmux` support only
-activates when those binaries are installed.
+`docker` and `tmux` features turn on automatically when installed.
 
 ## Catalog (`apps.yaml`)
 
@@ -64,12 +64,7 @@ hand; saved back to the same file.
   Panes survive launcher restarts and are re-adopted.
 - **Ports**: auto-detected per process (PID tree via psutil) + docker
   host ports. Ports tab = whole machine, tagged with the owning app.
-- **Logs**: per-process files in `logs/<app>/<proc>.log` (or `docker logs`
-  for docker procs); clearable from the UI. Launcher diagnostics in
-  `logs/applauncher.log` (rotating, English) — lifecycle, errors,
-  shutdown trace. Path: `--logs-dir` flag (or `APPLAUNCHER_LOGS` env),
-  else `./logs` in a dev checkout, else
-  `$XDG_STATE_HOME/applauncher/logs` (installed).
+- **Logs**: per-process files + launcher diagnostics — see *Logs*.
 - **Browser launch**: dropdown (Firefox/Brave, persisted). Per-process
   `browser_mode` (`window`/`tab`/`none` — 'none' hides its Open entries).
   App menu "Open URLs" and the Launch button open every app URL
@@ -79,6 +74,20 @@ hand; saved back to the same file.
   runtime, persisted.
 - **System tray**: minimize to tray, restore/quit from the icon menu.
   Hardened quit path (stop deadline + watchdogs) so the app always exits.
+
+## Config
+
+- `--config <path>` / `APPLAUNCHER_CONFIG` — pick another catalog file.
+- Default catalog: `./apps.yaml` next to the script, else
+  `~/.config/applauncher/apps.yaml` — personal, gitignored.
+
+## Logs
+
+- `logs/<app>/<proc>.log` — per-process logs; the **Logs** tab
+  browses/clears them.
+- `logs/applauncher.log` — launcher diagnostics; *View > Launcher
+  log* shows it live.
+- `--logs-dir` / `APPLAUNCHER_LOGS` — change where logs go.
 
 ## Preferences
 
