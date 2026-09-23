@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Dict, List, Optional, Tuple
 
-import psutil
-
 from . import tmux
 from .config import (
 	App,
@@ -57,6 +55,8 @@ class ProcessManager:
 		# liste ordonnee des apps (mutee en place par l'UI) :
 		# sert a resoudre le groupe tmux des apps 'shared'
 		self._apps: List[App] = []
+		self._psnap: Tuple[set, Dict[int, List[int]]] = (set(), {})
+		self._psnap_ts = 0.0
 
 	def set_apps(self, apps: List[App]) -> None:
 		self._apps = apps
@@ -97,6 +97,35 @@ class ProcessManager:
 		pane = self._adopted_pane(app, proc)
 		return pane is not None and not pane["dead"]
 
+	_PS_SNAP_TTL = 0.5  # snapshot /proc partage par le cycle de scan
+
+	def _proc_snapshot(self) -> Tuple[set, Dict[int, List[int]]]:
+		"""(pids vivants, ppid -> enfants) en un seul passage /proc,
+		partage par tous les status() du cycle : psutil.children
+		le re-parcourait par proc (~13ms x N procs)."""
+		now = time.monotonic()
+		if now - self._psnap_ts < self._PS_SNAP_TTL:
+			return self._psnap
+		pids: set = set()
+		children: Dict[int, List[int]] = {}
+		for name in os.listdir("/proc"):
+			if not name.isdigit():
+				continue
+			try:
+				with open(f"/proc/{name}/stat", "rb") as f:
+					s = f.read()
+				# 'pid (comm) state ppid ...' : comm peut contenir
+				# espaces/parentheses -> ancre sur la derniere ')'
+				ppid = int(s[s.rindex(b")") + 2:].split()[1])
+			except (OSError, ValueError, IndexError):
+				continue
+			pid = int(name)
+			pids.add(pid)
+			children.setdefault(ppid, []).append(pid)
+		self._psnap = (pids, children)
+		self._psnap_ts = now
+		return self._psnap
+
 	def pid_tree(self, app: App, proc: Process) -> List[int]:
 		"""PID racine + tous les enfants (recursif) du processus lance."""
 		rt = self._runtimes.get((app.name, proc.name))
@@ -112,11 +141,15 @@ class ProcessManager:
 					tmux.arm_pipe(self.log_path(app, proc), pane["id"])
 		if not pid:
 			return []
-		try:
-			root = psutil.Process(pid)
-			return [root.pid] + [c.pid for c in root.children(recursive=True)]
-		except (psutil.Error, AttributeError):
-			return []
+		pids, children = self._proc_snapshot()
+		if pid not in pids:
+			return []  # racine morte (psutil NoSuchProcess -> [])
+		out, stack = [], [pid]
+		while stack:
+			p = stack.pop()
+			out.append(p)
+			stack += children.get(p, ())
+		return out
 
 	@staticmethod
 	def _launch_error(log_path: Path, msg: str) -> Tuple[bool, str]:

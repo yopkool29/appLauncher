@@ -50,33 +50,51 @@ class PollMixin(tk.Tk):
 	def _collect_snapshot(self) -> bool:
 		"""Snapshot statuts -> queue Tk. True si aucun proc actif
 		(running/external) : le poller peut alors ralentir."""
+		# fenetre cachee (tray/iconic) : rien n'est visible, on ne
+		# scanne rien du tout ; _on_map reveille -> scan complet au
+		# retour. Les enfants morts sont reapes au prochain status().
+		if self._minimized:
+			return True
 		apps = list(self.apps)
 		try:
-			statuses = {
-				(app.name, proc.name): self.manager.status(app, proc)
-				for app in apps
-				for proc in app.processes
-			}
+			# mode simple : seule l'app des logs est scannee ; les
+			# autres gardent leur dernier statut connu (rien n'est
+			# affiche) jusqu'a la sortie du mode -> scan complet
+			simple = (
+				bool(self._simple_var.get())
+				and self._logs_app is not None
+			)
+			statuses = dict(self._snapshot) if simple else {}
+			for app in (self._logs_app,) if simple else apps:
+				for proc in app.processes:
+					statuses[(app.name, proc.name)] = (
+						self.manager.status(app, proc)
+					)
 			idle = not any(
 				s.state in (STATUS_RUNNING, STATUS_EXTERNAL)
 				for s in statuses.values()
 			)
-			port_owner = {}
-			for app in apps:
-				for proc in app.processes:
-					for p in set(proc.ports) | set(
-						statuses[(app.name, proc.name)].ports
-					):
-						port_owner[p] = app.name
-					if proc.is_docker:
-						for c in portscan.containers_for_proc(
-							proc.name, proc.workdir or "", proc.cmd
+			port_owner = self._port_owner
+			ports = None
+			if not simple:
+				port_owner = {}
+				for app in apps:
+					for proc in app.processes:
+						for p in set(proc.ports) | set(
+							statuses[(app.name, proc.name)].ports
 						):
-							for hp in c["host_ports"]:
-								port_owner[hp] = app.name
-			ports = (
-				portscan.all_listening() if self._ports_visible else None
-			)
+							port_owner[p] = app.name
+						if proc.is_docker:
+							for c in portscan.containers_for_proc(
+								proc.name, proc.workdir or "", proc.cmd
+							):
+								for hp in c["host_ports"]:
+									port_owner[hp] = app.name
+				ports = (
+					portscan.all_listening()
+					if self._ports_visible
+					else None
+				)
 			self._queue.put(("snapshot", (statuses, port_owner, ports)))
 			return idle
 		except Exception as exc:
@@ -96,7 +114,9 @@ class PollMixin(tk.Tk):
 						statuses, port_owner, all_ports = payload
 						self._snapshot = statuses
 						self._port_owner = port_owner
-						self._reload_tree()
+						# tree masque en mode simple : pas de rebuild
+						if not self._simple_var.get():
+							self._reload_tree()
 						if all_ports is not None:
 							self._fill_ports(all_ports)
 						self._refresh_statusbar()

@@ -207,6 +207,9 @@ class MainWindow(
 			self.notebook.insert(0, self._ports_frame, text="Ports")
 			pos = self._sash_pos
 			self.after_idle(lambda: self._paned.sashpos(0, pos))
+			# retour au mode normal : scan complet immediat
+			self._reload_tree()
+		self._wake.set()
 
 	def _build_ui(self) -> None:
 		self._build_menu()
