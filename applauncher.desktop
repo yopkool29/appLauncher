@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=AppLauncher
+Comment=Centralized launcher for multi-process apps (shell, docker, tmux)
+Exec=python3 /mnt/data/sources3/applauncher/applauncher.py --config /mnt/data/sources3/applauncher/apps.yaml --logs-dir /mnt/data/sources3/applauncher/logs
+Type=Application
+Terminal=false
+Categories=Development;
+Icon=/mnt/data/sources3/applauncher/icon.png
+StartupNotify=true
+StartupWMClass=applauncher

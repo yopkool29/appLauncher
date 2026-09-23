@@ -1,0 +1,29 @@
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# Outils
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Config locale personnelle (donnees utilisateur, pas du code)
+apps.yaml
+
+# Logs runtime
+logs/

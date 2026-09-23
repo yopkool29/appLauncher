@@ -1,0 +1,5 @@
+PyYAML>=6.0
+psutil>=5.9
+Pillow>=10.0
+pystray>=0.19.4
+sv-ttk>=2.6

@@ -1,0 +1,100 @@
+# App Launcher — example catalog
+# Copy to apps.yaml (repo/dev) or ~/.config/applauncher/apps.yaml,
+# or point to it with --config / APPLAUNCHER_CONFIG.
+#
+# Everything is optional except `name:` on apps and `name:`/`cmd:` on
+# processes. Edit this file directly or via the GUI (File > New App).
+
+apps:
+
+  # ---------------------------------------------------------
+  # Simple shell app: one server + a background task, no tmux.
+  # ---------------------------------------------------------
+  - name: "demo locale"
+    url: "http://localhost:8000"     # opened by Open URLs / Launch
+    launch_port: 8000                # port waited on by Launch
+    color: "#20b2aa"                 # colored square in the tree
+    processes:
+      - name: "http server"
+        cmd: "python3 -m http.server 8000"
+        workdir: "/tmp"
+        ports: [8000]                # shown in the Ports tab + browser open
+        browser_mode: tab            # window|tab|manual|none (def: window)
+
+      - name: "background task"
+        cmd: "sleep 3600"
+        # no ports, no browser target
+
+  # ---------------------------------------------------------
+  # tmux app: processes run in panes of dedicated session
+  # 'al-backend' (new terminal opens when they start).
+  # ---------------------------------------------------------
+  - name: "backend"
+    tmux_layout: tiled               # tiled|horizontal|vertical
+    tmux_attach: true                # open a terminal on start
+    tmux_shared: false               # dedicated session 'al-backend'
+    processes:
+      - name: "api"
+        cmd: "npm run dev"
+        workdir: "~/projects/api"
+        ports: [3000]
+        tmux: true                   # run inside tmux
+        tmux_window: 0               # same index = panes in same window
+        browser_mode: tab
+      - name: "worker"
+        cmd: "npm run worker"
+        workdir: "~/projects/api"
+        tmux: true
+        tmux_window: 1               # own window inside al-backend
+
+  # ---------------------------------------------------------
+  # tmux group: 'new window' leader, then shared apps join it
+  # as tabs IN ORDER (ungrouped leader = session 'al-<leader>').
+  # ---------------------------------------------------------
+  - name: "frontend"                 # leader of the group below
+    tmux_shared: false
+    processes:
+      - name: "vite"
+        cmd: "npm run dev"
+        workdir: "~/projects/front"
+        ports: [5173]
+        tmux: true
+        browser_mode: tab
+
+  - name: "storybook"
+    tmux_shared: true                # joins 'al-frontend' as a tab
+    processes:
+      - name: "sb"
+        cmd: "npm run storybook"
+        workdir: "~/projects/front"
+        ports: [6006]
+        tmux: true
+        browser_mode: manual         # Open :port only, never Open URLs
+
+  # ---------------------------------------------------------
+  # docker compose stack: no tmux panes (detached), status and
+  # logs read from containers; stop = compose down.
+  # ---------------------------------------------------------
+  - name: "stack"
+    url: "http://localhost:8080"
+    launch_port: 8080
+    processes:
+      - name: "compose up"
+        cmd: "docker compose up -d"
+        stop: "docker compose down"  # custom stop command
+        workdir: "~/projects/stack"
+        ports: [8080, 5432]
+        docker: true
+        browser_mode: window
+
+  # ---------------------------------------------------------
+  # manual-only app: ignored by Start all / Stop all
+  # (struck-through name in the tree).
+  # ---------------------------------------------------------
+  - name: "heavy batch"
+    exclude_all: true
+    processes:
+      - name: "etl"
+        cmd: "./scripts/etl.sh"
+        workdir: "~/projects/etl"
+        browser_mode: none           # no Open menu entries at all
