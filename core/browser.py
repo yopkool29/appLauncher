@@ -5,7 +5,9 @@ import configparser
 import logging
 import re
 import shlex
+import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -122,11 +124,48 @@ def app_urls(app: App) -> List[Tuple[str, bool]]:
 	return urls
 
 
-def _focus_latest_window(argv0: str) -> None:
+# wrappers a sauter pour trouver le vrai nom du binaire/app-id
+_WRAPPERS = {
+	"env", "flatpak", "snap", "setsid", "gio", "sh", "bash", "run",
+}
+_FOCUS_TOOLS: Optional[bool] = None
+
+
+def _focus_supported() -> bool:
+	"""wmctrl + xprop requis pour le focus ; teste une fois, logge
+	si absents (au lieu d'un FileNotFoundError invisible)."""
+	global _FOCUS_TOOLS
+	if _FOCUS_TOOLS is None:
+		_FOCUS_TOOLS = bool(
+			shutil.which("xprop") and shutil.which("wmctrl")
+		)
+		if not _FOCUS_TOOLS:
+			log.info("wmctrl/xprop absent — focus fenetre desactive")
+	return _FOCUS_TOOLS
+
+
+def _focus_key(argv: List[str]) -> str:
+	"""Cle de match WM_CLASS : garde le dernier token non-wrapper
+	('flatpak run org.mozilla.firefox' -> 'org.mozilla.firefox')."""
+	key = ""
+	for tok in argv:
+		name = Path(tok).name.lower()
+		if name in _WRAPPERS or "=" in name or name.startswith("-"):
+			continue
+		key = name
+	return key
+
+
+def _focus_latest_window(argv: List[str]) -> None:
 	"""Focus la fenetre la plus recente du navigateur pour que
 	--new-tab / l'URL s'y ouvre. _NET_CLIENT_LIST_STACKING est ordonne
 	bas->haut : la derniere fenetre du navigateur est la plus
-	recemment active. No-op silencieux sans wmctrl/xprop."""
+	recemment active. No-op sans wmctrl/xprop ou sans cle."""
+	if not _focus_supported():
+		return
+	key = _focus_key(argv)
+	if not key:
+		return
 	try:
 		out = subprocess.run(
 			["xprop", "-root", "_NET_CLIENT_LIST_STACKING"],
@@ -146,11 +185,11 @@ def _focus_latest_window(argv0: str) -> None:
 					cls_of[int(parts[0], 16)] = parts[2].lower()
 				except ValueError:
 					continue
-		key = Path(argv0).name.lower()
-		stem = key.split("-")[0]  # 'google-chrome' -> 'google'
+		# 'google-chrome' -> 'google' ; app-id flatpak -> 'firefox'
+		cands = {key, key.split("-")[0], key.split(".")[-1]}
 		for wid in reversed(ids):
 			cls = cls_of.get(wid, "")
-			if key in cls or stem in cls:
+			if any(c and c in cls for c in cands):
 				subprocess.run(
 					["wmctrl", "-i", "-a", hex(wid)],
 					stdout=subprocess.DEVNULL,
@@ -158,8 +197,8 @@ def _focus_latest_window(argv0: str) -> None:
 					timeout=3,
 				)
 				return
-	except (OSError, subprocess.TimeoutExpired):
-		pass
+	except (OSError, subprocess.TimeoutExpired) as exc:
+		log.debug("window focus failed: %s", exc)
 
 
 def open_url(url: str, argv: List[str], tab: bool = False) -> None:
@@ -168,15 +207,24 @@ def open_url(url: str, argv: List[str], tab: bool = False) -> None:
 	recente — l'onglet s'ouvre dans la fenetre active. --new-tab est
 	explicite pour Gecko ET Chromium (kNewTab ; les vieux Chromium
 	l'ignorent -> URL nue = tab). Sans fenetre ouverte, le navigateur
-	demarre simplement."""
+	demarre simplement. Fire-and-forget : tourne dans un thread
+	daemon — les outils de focus peuvent prendre ~1s et l'appelant
+	peut etre le thread UI."""
 	args = argv + (["--new-tab", url] if tab else ["--new-window", url])
-	if tab:
-		_focus_latest_window(argv[0])
 	log.info("opening %s -> %s", " ".join(args[:-1]), url)
-	subprocess.Popen(
-		args,
-		stdin=subprocess.DEVNULL,
-		stdout=subprocess.DEVNULL,
-		stderr=subprocess.DEVNULL,
-		start_new_session=True,
-	)
+
+	def run() -> None:
+		try:
+			if tab:
+				_focus_latest_window(argv)
+			subprocess.Popen(
+				args,
+				stdin=subprocess.DEVNULL,
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+				start_new_session=True,
+			)
+		except OSError as exc:
+			log.warning("cannot launch %s: %s", args[0], exc)
+
+	threading.Thread(target=run, daemon=True).start()
