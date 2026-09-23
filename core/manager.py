@@ -279,7 +279,7 @@ class ProcessManager:
 			# proc externe/orphelin (autre instance, process manuel) :
 			# libere aussi les ports occupes, sinon le stop ne fait rien
 			ok, ext_msg = self.stop_external(app, proc)
-			msg = ext_msg or msg
+			msg = "; ".join(m for m in (msg, ext_msg) if m)
 
 		if rt is not None:
 			if rt.log_handle is not None:

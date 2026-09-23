@@ -13,6 +13,7 @@ from core import tmux
 from core.config import (
 	App, Process, default_logs_dir, load_pref, save_pref,
 )
+from core.logging_helpers import tail_file
 
 T = TypeVar("T")
 
@@ -501,18 +502,14 @@ class LauncherLogDialog(_Modal[None]):
 		self._text.configure(state=tk.DISABLED)
 
 	def _load(self) -> None:
-		try:
-			path = self._log_file
-			size = path.stat().st_size
-			if size == self._size:
-				return
-			with open(path, "rb") as f:
-				f.seek(max(0, size - self._TAIL))
-				text = f.read().decode("utf-8", errors="replace")
-			self._set_text(text)
-			self._size = size
-		except OSError:
-			pass
+		res = tail_file(self._log_file, self._TAIL)
+		if res is None:
+			return
+		text, size = res
+		if size == self._size:
+			return
+		self._set_text(text)
+		self._size = size
 
 	def _clear(self) -> None:
 		try:
@@ -542,6 +539,9 @@ class PrefsDialog(_Modal[None]):
 		super().__init__(parent, "Preferences", modal=False)
 		self._win = parent  # MainWindow (acces au snapshot des ports)
 		self._wrapper = tk.StringVar(value=load_pref("cmd_wrapper", ""))
+		self._url_base = tk.StringVar(
+			value=load_pref("url_base", "http://localhost")
+		)
 		self._to_tray = tk.BooleanVar(
 			value=load_pref("minimize_to_tray", "1") == "1"
 		)
@@ -561,7 +561,7 @@ class PrefsDialog(_Modal[None]):
 		body.pack(fill=tk.BOTH, expand=True)
 		# resize : la colonne contenu + la ligne du tree s'etendent
 		body.columnconfigure(1, weight=1)
-		body.rowconfigure(5, weight=1)
+		body.rowconfigure(6, weight=1)
 		ttk.Label(body, text="Command wrapper:").grid(
 			row=0, column=0, sticky=tk.W, pady=3
 		)
@@ -578,6 +578,18 @@ class PrefsDialog(_Modal[None]):
 			justify=tk.LEFT,
 		).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
 
+		ttk.Label(body, text="URL base:").grid(
+			row=2, column=0, sticky=tk.W, pady=3
+		)
+		ttk.Entry(body, textvariable=self._url_base, width=52).grid(
+			row=2, column=1, sticky=tk.EW, pady=3
+		)
+		ttk.Label(
+			body,
+			text="Used to build port URLs (Open / Launch).",
+			justify=tk.LEFT,
+		).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+
 		# grise si aucune icone de tray n'est active (ancrage confirme)
 		tray_ok = bool(getattr(self._win, "_tray_live", False))
 		ttk.Checkbutton(
@@ -585,19 +597,19 @@ class PrefsDialog(_Modal[None]):
 			text="Minimize to system tray",
 			variable=self._to_tray,
 			state=tk.NORMAL if tray_ok else tk.DISABLED,
-		).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+		).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
 
-		ttk.Label(body, text="On quit:").grid(row=3, column=0, sticky=tk.W)
+		ttk.Label(body, text="On quit:").grid(row=5, column=0, sticky=tk.W)
 		ttk.Combobox(
 			body,
 			textvariable=self._quit_action,
 			values=tuple(self._QUIT_LABELS.values()),
 			state="readonly",
 			width=26,
-		).grid(row=3, column=1, sticky=tk.W)
+		).grid(row=5, column=1, sticky=tk.W)
 
 		ttk.Label(body, text="Ports in use (live):").grid(
-			row=4, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
+			row=6, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
 		)
 		self._ports = ttk.Treeview(
 			body,
@@ -616,12 +628,12 @@ class PrefsDialog(_Modal[None]):
 		sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._ports.yview)
 		self._ports.configure(yscrollcommand=sb.set)
 		self._ports.grid(
-			row=5, column=0, columnspan=2, sticky=tk.NSEW
+			row=6, column=0, columnspan=2, sticky=tk.NSEW
 		)
-		sb.grid(row=5, column=2, sticky=tk.NS)
+		sb.grid(row=6, column=2, sticky=tk.NS)
 		self._refresh_ports()
 
-		self._ok_cancel(body, 6)
+		self._ok_cancel(body, 7)
 		self.bind("<Return>", lambda _e: self._ok())
 
 	def _refresh_ports(self) -> None:
@@ -652,6 +664,7 @@ class PrefsDialog(_Modal[None]):
 
 	def _ok(self) -> None:
 		save_pref("cmd_wrapper", self._wrapper.get().strip())
+		save_pref("url_base", self._url_base.get().strip())
 		save_pref(
 			"minimize_to_tray", "1" if self._to_tray.get() else "0"
 		)

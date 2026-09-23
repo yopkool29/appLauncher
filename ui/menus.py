@@ -8,7 +8,7 @@ import webbrowser
 from functools import partial
 from tkinter import ttk
 
-from core.browser import app_urls
+from core.browser import app_urls, port_url
 from ui.tray import ICON_PATH
 
 from core import tmux
@@ -218,7 +218,7 @@ class MenuMixin(tk.Tk):
 					open_menu = tk.Menu(menu, tearoff=0)
 					for p in proc.ports:
 						open_menu.add_command(
-							label=f"localhost:{p}",
+							label=port_url(p).split("://", 1)[-1],
 							command=partial(self._open_port, proc, p),
 						)
 					self._pad_menu(open_menu)

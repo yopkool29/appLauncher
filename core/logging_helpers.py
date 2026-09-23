@@ -7,7 +7,19 @@ import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+
+
+def tail_file(path: Path, max_bytes: int) -> Optional[Tuple[str, int]]:
+	"""(contenu des derniers max_bytes, taille reelle) d'un fichier ;
+	None s'il est absent ou illisible."""
+	try:
+		size = path.stat().st_size
+		with open(path, "rb") as f:
+			f.seek(max(0, size - max_bytes))
+			return f.read().decode("utf-8", errors="replace"), size
+	except OSError:
+		return None
 
 
 class CleanFormatter(logging.Formatter):

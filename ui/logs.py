@@ -11,6 +11,7 @@ from typing import Optional
 
 from core import ports as portscan
 from core.config import App, Process
+from core.logging_helpers import tail_file
 from ui.ansi_text import write_ansi
 
 LOG_TAIL_BYTES = 65536
@@ -117,14 +118,11 @@ class LogsMixin(tk.Tk):
 			threading.Thread(target=fetch, daemon=True).start()
 			return
 		path = self.manager.log_path(app, proc)
-		try:
-			size = path.stat().st_size
-			with open(path, "rb") as f:
-				f.seek(max(0, size - LOG_TAIL_BYTES))
-				text = f.read().decode("utf-8", errors="replace")
-			tab["size"] = size
-		except OSError:
+		res = tail_file(path, LOG_TAIL_BYTES)
+		if res is None:
 			text = "(no log yet)"
+		else:
+			text, tab["size"] = res
 		self._set_log_text(tab, text)
 
 	def _reload_logs(self) -> None:

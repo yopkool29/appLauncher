@@ -135,7 +135,9 @@ class EditMixin(tk.Tk):
 	def _refresh_all(self) -> None:
 		"""F5 : recharge apps.yaml depuis le disque + refresh statuts."""
 		try:
-			self.apps = load_config(self.config_path)
+			# mutation en place : manager._apps partage cette liste
+			# (resolution des groupes tmux) — un rebind le rendrait stale
+			self.apps[:] = load_config(self.config_path)
 			log.info(
 				f"config reloaded from {self.config_path} "
 				f"({len(self.apps)} app(s))"

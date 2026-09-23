@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .config import App
+from .config import App, load_pref
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +67,17 @@ def browsers() -> Dict[str, List[str]]:
 	return _BROWSERS
 
 
+def url_base() -> str:
+	"""Base des URLs construites a partir d'un port (pref 'url_base',
+	defaut 'http://localhost')."""
+	base = load_pref("url_base", "http://localhost").strip().rstrip("/")
+	return base or "http://localhost"
+
+
+def port_url(port: int) -> str:
+	return f"{url_base()}:{port}"
+
+
 def app_urls(app: App) -> List[Tuple[str, bool]]:
 	"""URLs ouvertes par 'Open URLs' / Launch : url + launch_port de
 	l'app en tete (fenetre), puis chaque port des procs dont le mode
@@ -102,13 +113,12 @@ def app_urls(app: App) -> List[Tuple[str, bool]]:
 	if app.url and url_port not in blocked:
 		add(app.url, port_tab(url_port))
 	if app.launch_port and app.launch_port not in blocked:
-		add(f"http://localhost:{app.launch_port}",
-		    port_tab(app.launch_port))
+		add(port_url(app.launch_port), port_tab(app.launch_port))
 	for proc in app.processes:
 		if proc.browser_mode in ("none", "manual"):
 			continue
 		for p in proc.ports:
-			add(f"http://localhost:{p}", proc.browser_mode == "tab")
+			add(port_url(p), proc.browser_mode == "tab")
 	return urls
 
 

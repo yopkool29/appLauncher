@@ -11,7 +11,7 @@ from typing import Callable, List, Optional, Set, Tuple
 
 from core import ports as portscan
 from core import tmux
-from core.browser import app_urls, browsers, open_url
+from core.browser import app_urls, browsers, open_url, port_url
 from core.config import App, Process
 from ui.dialogs import L, confirm
 from core.manager import (
@@ -81,14 +81,15 @@ class ActionsMixin(tk.Tk):
 	) -> None:
 		def run() -> None:
 			attach: Optional[Tuple[App, Process]] = None
-			for proc in procs:
+			for i, proc in enumerate(procs):
 				ok, msg = self.manager.start(app, proc)
 				if not ok:
 					self._queue.put(("error", msg))
 				elif proc.tmux and attach is None and app.tmux_attach:
 					# session tmux detachee : ouvrir un terminal dessus
 					attach = (app, proc)
-				time.sleep(0.3)
+				if i < len(procs) - 1:
+					time.sleep(0.3)
 			if attach:
 				self._queue_attach(attach[0], attach[1])
 		self._run_action(run)
@@ -336,7 +337,7 @@ class ActionsMixin(tk.Tk):
 			return
 		port = proc.ports[0] if proc.ports else app.launch_port
 		if port:
-			url = f"http://localhost:{port}"
+			url = port_url(port)
 		elif app.url:
 			url = app.url
 		else:
@@ -372,7 +373,7 @@ class ActionsMixin(tk.Tk):
 
 	def _open_port(self, proc: Process, port: int) -> None:
 		self._open_in_browser(
-			f"http://localhost:{port}",
+			port_url(port),
 			self._browser_var.get(),
 			proc.browser_mode == "tab",
 		)

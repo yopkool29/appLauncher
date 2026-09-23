@@ -232,7 +232,9 @@ def save_config(path: Path, apps: List[App]) -> None:
 		data = {}
 	data["apps"] = [a.to_dict() for a in apps]  # garde 'window:' etc.
 	body = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
-	path.write_text(header + body)
+	tmp = path.with_name(path.name + ".tmp")
+	tmp.write_text(header + body)
+	tmp.replace(path)  # rename atomique : pas de yaml tronque si crash
 
 
 PREFS_PATH = (
