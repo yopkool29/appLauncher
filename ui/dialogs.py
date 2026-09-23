@@ -622,7 +622,9 @@ class PrefsDialog(_Modal[None]):
 		ttk.Entry(sz, textvariable=self._win_h, width=6).pack(
 			side=tk.LEFT
 		)
-		ttk.Label(sz, text=" (blank = default)").pack(side=tk.LEFT)
+		ttk.Label(sz, text=" (blank = default, min 100)").pack(
+			side=tk.LEFT
+		)
 
 		ttk.Label(body, text="Ports in use (live):").grid(
 			row=7, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
@@ -694,6 +696,9 @@ class PrefsDialog(_Modal[None]):
 		valid = (
 			w.isdigit() and h.isdigit() and int(w) > 0 and int(h) > 0
 		)
+		if valid:
+			# plancher 100x100 : en dessous la fenetre est inutilisable
+			w, h = str(max(100, int(w))), str(max(100, int(h)))
 		save_pref("win_min_width", w if valid else "")
 		save_pref("win_min_height", h if valid else "")
 		if valid:

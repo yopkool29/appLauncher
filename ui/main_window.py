@@ -107,9 +107,10 @@ class MainWindow(
 			if legacy.get(yaml_key) and not load_pref(pref_key, ""):
 				save_pref(pref_key, str(legacy[yaml_key]))
 		try:
+			# plancher 100x100 meme si prefs.json est edite a la main
 			self.minsize(
-				int(load_pref("win_min_width", "")),
-				int(load_pref("win_min_height", "")),
+				max(100, int(load_pref("win_min_width", ""))),
+				max(100, int(load_pref("win_min_height", ""))),
 			)
 		except (TypeError, ValueError):
 			self.minsize(MIN_W, MIN_H)
