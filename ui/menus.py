@@ -223,13 +223,13 @@ class MenuMixin(tk.Tk):
 			if proc.browser_mode != "none":
 				if len(proc.ports) == 1:
 					item(f"Open :{proc.ports[0]}",
-					     partial(self._open_port, proc, proc.ports[0]), "u")
+					     partial(self._open_port, app, proc, proc.ports[0]), "u")
 				elif len(proc.ports) > 1:
 					open_menu = tk.Menu(menu, tearoff=0)
 					for p in proc.ports:
 						open_menu.add_command(
 							label=port_url(p).split("://", 1)[-1],
-							command=partial(self._open_port, proc, p),
+							command=partial(self._open_port, app, proc, p),
 						)
 					self._pad_menu(open_menu)
 					menu.add_cascade(label="Open port", menu=open_menu)

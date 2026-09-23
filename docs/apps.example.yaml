@@ -18,6 +18,7 @@ apps:
     url: "http://localhost:8000"     # opened by Open URLs / Launch
     launch_port: 8000                # port waited on by Launch
     color: "#20b2aa"                 # colored square in the tree
+    # browser: "Chromium"            # override global browser for all procs
     processes:
       - name: "http server"
         cmd: "python3 -m http.server 8000"
@@ -63,6 +64,7 @@ apps:
         workdir: "~/projects/front"
         ports: [5173]
         tmux: true
+        color: "#646cff"             # colored square on the proc row
         browser_mode: tab
 
   - name: "storybook"

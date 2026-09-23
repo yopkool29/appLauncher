@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -26,6 +27,30 @@ TMUX_LAYOUTS = {
 
 SHARED_SESSION = "al"  # repli : apps shared sans leader avant elles
 MARK = "@al-launcher"  # option posee a la creation : session "a nous"
+
+# rcfile du shell interactif ouvert dans le pane apres la mort du
+# proc : @al-wait=1 au prompt (proc fini -> le launcher voit
+# FINISHED), vide pendant une commande (-> RUNNING si l'utilisateur
+# relance lui-meme). Source ~/.bashrc d'abord : nos hooks passent en
+# dernier et survivent a un PROMPT_COMMAND custom.
+_SHELL_RC = """\
+[ -f ~/.bashrc ] && . ~/.bashrc
+trap 'tmux set-option -p @al-wait "" 2>/dev/null' DEBUG
+PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }\\
+tmux set-option -p @al-wait 1 2>/dev/null"
+"""
+
+
+def _shell_rc() -> Path:
+	"""Ecrit/rafraichit le rcfile partage des shells post-mortem."""
+	rc = Path.home() / ".cache" / "applauncher" / "tmux-shell-rc"
+	try:
+		rc.parent.mkdir(parents=True, exist_ok=True)
+		if not rc.exists() or rc.read_text() != _SHELL_RC:
+			rc.write_text(_SHELL_RC)
+	except OSError:
+		pass  # bash demarrera sans hooks : @al-wait restera pose
+	return rc
 
 
 def session_name(app: App, apps: Optional[List[App]] = None) -> str:
@@ -105,29 +130,31 @@ def session_attached(session: str) -> bool:
 
 
 def _pane(f: List[str]) -> dict:
-	"""Parse une ligne list-panes : id, proc, app, pid, dead, pipe."""
+	"""Parse une ligne list-panes : id, proc, app, pid, wait, dead,
+	pipe. NB: @al-wait n'est JAMAIS en dernier dans le format — _out
+	strip() mangerait le \t final d'un champ vide."""
 	try:
 		pid = int(f[3] or 0)
 	except ValueError:
 		pid = 0
 	return {
 		"id": f[0], "proc": f[1], "app": f[2], "pid": pid,
-		"dead": f[4] == "1", "pipe": f[5] == "1",
+		"wait": f[4] == "1", "dead": f[5] == "1", "pipe": f[6] == "1",
 	}
 
 
 def list_panes(session: str) -> List[dict]:
-	"""Panes de la session : id, tags @al-proc/@al-app, pid, dead, pipe."""
+	"""Panes de la session : id, tags @al-*, pid, wait, dead, pipe."""
 	out = _out(
 		"list-panes", "-s", "-t", tgt(session),
 		"-F",
 		"#{pane_id}\t#{@al-proc}\t#{@al-app}\t#{pane_pid}"
-		"\t#{pane_dead}\t#{pane_pipe}",
+		"\t#{@al-wait}\t#{pane_dead}\t#{pane_pipe}",
 	)
 	return [
 		_pane(line.split("\t"))
 		for line in out.splitlines()
-		if len(line.split("\t")) == 6
+		if len(line.split("\t")) == 7
 	]
 
 
@@ -173,7 +200,7 @@ def all_panes() -> List[dict]:
 		_out(
 			"list-panes", "-a", "-F",
 			"#{session_name}\t#{pane_id}\t#{@al-proc}\t#{@al-app}"
-			"\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}",
+			"\t#{pane_pid}\t#{@al-wait}\t#{pane_dead}\t#{pane_pipe}",
 		)
 		if owned
 		else ""
@@ -181,7 +208,7 @@ def all_panes() -> List[dict]:
 	panes = [
 		{**_pane(p[1:]), "session": p[0]}
 		for p in (line.split("\t") for line in out.splitlines())
-		if len(p) == 7 and p[0] in owned
+		if len(p) == 8 and p[0] in owned
 	]
 	_panes_cache = (time.time(), panes)
 	return panes
@@ -279,6 +306,25 @@ def spawn(
 		app.tmux_layout, TMUX_LAYOUTS["tiled"]
 	)
 	pipe = f"cat >> {log_path}"
+	# post-mortem interactif : a la mort du proc (Ctrl+C, crash) le
+	# pane devient un shell libre — la commande est seedee en dernier
+	# de l'history (fleche Haut = relance). @al-wait=1 au prompt pour
+	# que le launcher voie FINISHED ; le rcfile le retire pendant une
+	# commande. exit/^D = pane mort (respawn-pane le ressuscite).
+	# trap '' INT dans le wrapper : ^C tue le sous-shell (INT restaure
+	# dedans) mais jamais la sequence ; ec capture avant set-option.
+	hist = log_path.parent / f".hist-{safe_name(proc.name)}"
+	qhist = shlex.quote(str(hist))
+	cmd = (
+		"trap '' INT; "
+		f"( trap - INT; {cmd} ); ec=$?; "
+		"printf '\\n[exit %s] shell — ↑ relance la commande, "
+		"exit/^D ferme le pane\\n' \"$ec\"; "
+		"tmux set-option -p @al-wait 1 2>/dev/null; "
+		f"printf '%s\\n' {shlex.quote(cmd)} >> {qhist}; "
+		f"HISTFILE={qhist} exec bash --rcfile "
+		f"{shlex.quote(str(_shell_rc()))} -i"
+	)
 	win = window_key(app, proc)
 	target = f"{st}:{win}"
 
@@ -293,10 +339,12 @@ def spawn(
 	pane_id = ""
 	pane = find_pane(session, app.name, proc.name)
 	if pane is not None:
-		# pane taggee morte -> relance en place, layout conserve
+		# pane taggee morte ou en attente -> relance en place, layout
+		# conserve ; pipe-pane sans -o : le pane mort gardait un pipe
+		# stale que -o sautait -> logs coupes apres respawn
 		args = (
 			["respawn-pane", "-k", "-t", pane["id"], cmd,
-			 ";", "pipe-pane", "-t", pane["id"], "-o", pipe]
+			 ";", "pipe-pane", "-t", pane["id"], pipe]
 		)
 		pane_id = pane["id"]
 	elif session_exists(session):

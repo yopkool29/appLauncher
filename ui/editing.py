@@ -9,6 +9,7 @@ import threading
 from tkinter import messagebox
 from typing import List, Optional
 
+from core import tmux
 from core.config import App, Process, load_config, save_config
 from core.manager import STATUS_EXTERNAL, STATUS_RUNNING
 from ui.dialogs import AppDialog, L, ProcessDialog, confirm
@@ -41,13 +42,29 @@ class EditMixin(tk.Tk):
 		dialog = AppDialog(self, app)
 		if dialog.result:
 			r = dialog.result
+			old_layout = app.tmux_layout
 			# tout sauf processes (edites a part)
 			for f in (
 				"name", "alias", "url", "tmux_layout", "launch_port",
 				"tmux_attach", "tmux_shared", "exclude_all", "color",
+				"browser",
 			):
 				setattr(app, f, getattr(r, f))
 			self._save()
+			# layout change : retile les fenetres tmux tout de suite,
+			# sans redemarrer les procs qui tournent
+			session = tmux.session_name(app, self.apps)
+			if (
+				tmux.TMUX_OK
+				and r.tmux_layout != old_layout
+				and tmux.session_exists(session)
+			):
+				for w in {
+					tmux.window_key(app, p)
+					for p in app.processes
+					if p.tmux
+				}:
+					tmux.retile(session, w, app.tmux_layout)
 
 	def _edit_proc(self, app: App, proc: Process) -> None:
 		dialog = ProcessDialog(self, proc)
@@ -99,28 +116,47 @@ class EditMixin(tk.Tk):
 		self._save()
 
 	def _move_selection(self, delta: int) -> None:
-		"""Deplace l'item selectionne (app ou proc) de +/-1 —
-		l'ordre determine aussi celui de Start all et les groupes
-		tmux : interdit tant qu'un proc tourne."""
-		if self._any_running():
-			self._status_lbl.config(
-				text="reorder locked while processes are running"
-			)
-			return
+		"""Deplace l'item selectionne (app ou proc) de +/-1.
+		App : verrou global (l'ordre pilote Start all et les groupes
+		tmux shared). Proc : deplaceable des qu'aucun proc de SON
+		app ne tourne — le reorder est local a l'app."""
 		t = self._resolve(self.tree.focus()) or self._selection()
 		if not t:
 			return
 		if t[0] == "app":
+			if self._any_running():
+				self._status_lbl.config(
+					text="reorder locked while processes are running"
+				)
+				return
 			lst, obj, iid = self.apps, t[1], self._iid_app(t[1])
 		else:
-			lst, obj = t[1].processes, t[2]
-			iid = self._iid_proc(t[1], t[2])
+			app = t[1]
+			if any(
+				self._state_of(app, p)
+				in (STATUS_RUNNING, STATUS_EXTERNAL)
+				for p in app.processes
+			):
+				self._status_lbl.config(
+					text="reorder locked: app has running processes"
+				)
+				return
+			lst, obj = app.processes, t[2]
+			iid = self._iid_proc(app, t[2])
 		i, j = lst.index(obj), lst.index(obj) + delta
 		if not (0 <= j < len(lst)):
 			return
 		lst[i], lst[j] = lst[j], lst[i]
 		self._save()
 		self.tree.see(iid)
+		# les sous-onglets de logs suivent le nouvel ordre des procs
+		if t[0] != "app" and self._logs_app is app:
+			cur = self._cur_log_tab()
+			self._build_log_tabs(app)
+			if cur is not None:
+				tab = self._log_tabs.get(cur["proc"].name)
+				if tab is not None:
+					self._logs_nb.select(tab["frame"])
 
 	def _save(self) -> None:
 		try:

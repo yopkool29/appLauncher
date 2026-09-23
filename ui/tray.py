@@ -139,6 +139,7 @@ class TrayMixin(tk.Tk):
 		if event.widget is not self or not self._alive or self._closing:
 			return
 		self._minimized = True  # fenetre cachee -> polling ralenti
+		self._want_visible = False
 		if (
 			self.state() == "iconic"
 			and self._tray_live
@@ -154,7 +155,7 @@ class TrayMixin(tk.Tk):
 		"""Clic sur l'icone : masque la fenetre si elle est visible
 		(iconify -> _on_unmap pose SKIP_TASKBAR quand le tray est
 		live), la restaure sinon (iconic/withdrawn)."""
-		if self.state() in ("normal", "zoomed"):
+		if self.winfo_viewable():
 			self.iconify()
 		else:
 			self._restore()
@@ -164,10 +165,25 @@ class TrayMixin(tk.Tk):
 			self._minimized = False
 			self._wake.set()  # reveille le poller : refresh immediat
 
-	def _restore(self) -> None:
+	def _restore(self, retry: bool = True) -> None:
+		self._want_visible = True
 		self._set_skip_taskbar(False)
 		self.deiconify()
 		self.lift()
+		self.focus_force()
+		if retry:
+			# certains WM mangent le 1er deiconify emis juste apres
+			# le retrait de SKIP_TASKBAR : une retente auto remplace
+			# le 2e clic que le user devait faire
+			self.after(200, self._restore_retry)
+
+	def _restore_retry(self) -> None:
+		if (
+			self._want_visible
+			and self.state() == "iconic"
+			and not self._closing
+		):
+			self._restore(retry=False)
 
 	def _set_skip_taskbar(self, enable: bool) -> None:
 		"""_NET_WM_STATE_SKIP_TASKBAR via ClientMessage EWMH au root :

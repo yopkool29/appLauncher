@@ -6,10 +6,11 @@ import os
 import tkinter as tk
 from functools import partial
 from tkinter import filedialog, messagebox, ttk
-from typing import Generic, Optional, TypeVar
+from typing import Callable, Generic, Optional, Tuple, TypeVar
 
 from core import ports as portscan
 from core import tmux
+from core.browser import browsers
 from core.config import (
 	App, Process, default_logs_dir, load_pref, save_pref,
 )
@@ -183,22 +184,86 @@ BROWSER_MODES = {
 	"none": "Nothing (hidden)",
 }
 
-# palette de couleurs HTML standard ("" = aucune)
+def _color_picker(
+	body: tk.Widget, initial: str
+) -> Tuple[tk.Canvas, Callable[[], str]]:
+	"""Rangee de carres cliquables (palette APP_COLORS) ; retourne le
+	canvas + un getter -> '#rrggbb' ou '' (aucune)."""
+	cur = {"c": initial}
+	colors = list(APP_COLORS)
+	if initial and initial not in colors:
+		colors.append(initial)
+	per_row = (len(colors) + 1) // 2  # palette sur 2 rangees
+	cv = tk.Canvas(
+		body, width=22 * per_row, height=48, highlightthickness=0
+	)
+
+	def cell(i: int) -> Tuple[int, int]:
+		return 3 + (i % per_row) * 22, 3 + (i // per_row) * 22
+
+	def mark() -> None:
+		cv.delete("hl")
+		if cur["c"] in colors:
+			x, y = cell(colors.index(cur["c"]))
+			cv.create_rectangle(
+				x - 2, y - 2, x + 20, y + 20,
+				outline="#000000", width=2, tags="hl",
+			)
+
+	for i, c in enumerate(colors):
+		x, y = cell(i)
+		cv.create_rectangle(
+			x, y, x + 18, y + 18, fill=c or "#ffffff", outline="#999999"
+		)
+		if not c:
+			cv.create_line(x, y, x + 18, y + 18, fill="#cc0000")
+
+	def pick(e: tk.Event) -> None:
+		i = int(cv.canvasy(e.y) // 22) * per_row + int(
+			cv.canvasx(e.x) // 22
+		)
+		if 0 <= i < len(colors):
+			cur["c"] = colors[i]
+			mark()
+
+	cv.bind("<Button-1>", pick)
+	mark()
+	return cv, lambda: cur["c"]
+
+
+# palette de couleurs distinctes ("" = aucune) — triees par teinte
 APP_COLORS = (
 	"",
+	# rouges / roses
+	"#e6194b",  # red
+	"#dc143c",  # crimson
 	"#ff6347",  # tomato
+	"#ff69b4",  # hotpink
+	# oranges / jaunes
+	"#f58231",  # orange vif
 	"#ffa500",  # orange
 	"#ffd700",  # gold
+	# verts
 	"#9acd32",  # yellowgreen
+	"#3cb44b",  # green
 	"#2e8b57",  # seagreen
+	"#008080",  # teal
+	# cyans / bleus
 	"#20b2aa",  # lightseagreen
+	"#42d4f4",  # cyan
 	"#00bfff",  # deepskyblue
 	"#1e90ff",  # dodgerblue
+	"#4363d8",  # royalblue
+	# violets
 	"#6a5acd",  # slateblue
 	"#9370db",  # mediumpurple
-	"#ff69b4",  # hotpink
+	"#911eb4",  # purple
+	"#f032e6",  # magenta
+	# bruns / gris
 	"#a52a2a",  # brown
+	"#d2691e",  # chocolate
 	"#708090",  # slategray
+	"#2f4f4f",  # darkslategray
 )
 
 
@@ -241,6 +306,21 @@ class AppDialog(_Modal[App]):
 			ttk.Label(body, text=label).grid(row=row, column=0, sticky=tk.W, pady=3)
 			ttk.Entry(body, textvariable=var, width=42).grid(row=row, column=1, pady=3)
 		row = len(rows)
+		# override du navigateur global (toolbar) pour tous les procs
+		choices = ["(default)"] + list(browsers())
+		if app and app.browser and app.browser not in choices:
+			choices.append(app.browser)
+		self._browser_sel = tk.StringVar(
+			value=(app.browser if app else "") or "(default)"
+		)
+		ttk.Label(body, text="Browser:").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		ttk.Combobox(
+			body, textvariable=self._browser_sel, state="readonly",
+			values=choices, width=40,
+		).grid(row=row, column=1, sticky=tk.W, pady=3)
+		row += 1
 		if tmux.TMUX_OK:
 			ttk.Label(body, text="tmux:").grid(
 				row=row, column=0, sticky=tk.W, pady=3
@@ -271,43 +351,12 @@ class AppDialog(_Modal[App]):
 		).grid(row=row, column=1, sticky=tk.W, pady=3)
 		row += 1
 		ttk.Label(body, text="Color:").grid(row=row, column=0, sticky=tk.W, pady=3)
-		colors = list(APP_COLORS)
-		if self._color and self._color not in colors:
-			colors.append(self._color)
-		cv = tk.Canvas(
-			body, width=22 * len(colors), height=24, highlightthickness=0
-		)
+		cv, self._get_color = _color_picker(body, self._color)
 		cv.grid(row=row, column=1, sticky=tk.W, pady=3)
-		for i, c in enumerate(colors):
-			x = 3 + i * 22
-			cv.create_rectangle(
-				x, 3, x + 18, 21, fill=c or "#ffffff", outline="#999999"
-			)
-			if not c:
-				cv.create_line(x, 3, x + 18, 21, fill="#cc0000")
-		self._colors = colors
-		cv.bind(
-			"<Button-1>",
-			lambda e: self._pick_color(cv, int(cv.canvasx(e.x) // 22)),
-		)
-		self._mark_color(cv)
 
 		self._ok_cancel(body, row + 1)
 		self.bind("<Return>", lambda _e: self._ok())
 		self.wait_window(self)
-
-	def _pick_color(self, cv: tk.Canvas, idx: int) -> None:
-		if 0 <= idx < len(self._colors):
-			self._color = self._colors[idx]
-			self._mark_color(cv)
-
-	def _mark_color(self, cv: tk.Canvas) -> None:
-		cv.delete("hl")
-		if self._color in self._colors:
-			x = 3 + self._colors.index(self._color) * 22
-			cv.create_rectangle(
-				x - 2, 1, x + 20, 23, outline="#000000", width=2, tags="hl"
-			)
 
 	def _ok(self) -> None:
 		name = self._name_var.get().strip()
@@ -332,7 +381,11 @@ class AppDialog(_Modal[App]):
 			tmux_attach=self._tmux_attach.get(),
 			tmux_shared=self._tmux_shared.get(),
 			exclude_all=self._exclude_all.get(),
-			color=self._color,
+			color=self._get_color(),
+			browser=(
+				"" if self._browser_sel.get() == "(default)"
+				else self._browser_sel.get()
+			),
 		)
 		self.destroy()
 
@@ -414,8 +467,16 @@ class ProcessDialog(_Modal[Process]):
 			state="readonly",
 			width=18,
 		).pack(side=tk.LEFT)
+		crow = len(rows) + (3 if tmux.TMUX_OK else 2)
+		ttk.Label(body, text="Color:").grid(
+			row=crow, column=0, sticky=tk.W, pady=3
+		)
+		cv, self._get_color = _color_picker(
+			body, proc.color if proc else ""
+		)
+		cv.grid(row=crow, column=1, sticky=tk.W, pady=3)
 
-		self._ok_cancel(body, len(rows) + 3, colspan=3)
+		self._ok_cancel(body, crow + 1, colspan=3)
 		self.bind("<Return>", lambda _e: self._ok())
 		self.wait_window(self)
 
@@ -453,6 +514,7 @@ class ProcessDialog(_Modal[Process]):
 			browser_mode=_key_of(
 				BROWSER_MODES, self._browser_mode.get(), "window"
 			),
+			color=self._get_color(),
 		)
 		self.destroy()
 

@@ -126,6 +126,7 @@ class MainWindow(
 		self._port_owner: Dict[int, str] = {}
 		self._alive: bool = True
 		self._minimized: bool = False
+		self._want_visible: bool = True  # demande de restore en cours
 		self._ports_visible: bool = True  # onglet Ports selectionne au depart
 		self._wake = threading.Event()  # reveil anticipe du poller
 		self._instance_sock = instance_sock  # single-instance (None = tests)

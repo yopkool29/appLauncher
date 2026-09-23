@@ -183,6 +183,7 @@ class TreeMixin(tk.Tk):
 				self._upsert(
 					proc_iid, app_iid, i,
 					text=f"   {proc.name}",
+					image=self._dot(proc.color) if proc.color else "",
 					values=(
 						plabel,
 						"☑" if proc.tmux else "☐",
@@ -261,6 +262,7 @@ class TreeMixin(tk.Tk):
 			if t and t[0] == "app":
 				self._show_logs(t[1], focus=False)
 		self._refresh_toggle_btn()
+		self._refresh_move_btns()
 
 	def _on_cell_click(self, event) -> Optional[str]:
 		"""Clic sur la cellule tmux -> toggle 'Run in tmux' (colonne #2)."""

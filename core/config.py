@@ -26,6 +26,7 @@ class Process:
 	tmux: bool = False
 	tmux_window: int = 0
 	browser_mode: str = "window"  # window | tab | none (Open masque)
+	color: str = ""  # hex "#rrggbb" -> carre colore dans le tree
 
 	def __post_init__(self) -> None:
 		self.workdir = os.path.expandvars(os.path.expanduser(self.workdir))
@@ -50,6 +51,7 @@ class Process:
 			tmux=bool(data.get("tmux", False)),
 			tmux_window=int(data.get("tmux_window", 0) or 0),
 			browser_mode=bmode,
+			color=str(data.get("color", "") or ""),
 		)
 
 	def to_dict(self) -> dict:
@@ -64,6 +66,7 @@ class Process:
 			"browser_mode": (
 				self.browser_mode if self.browser_mode != "window" else ""
 			),
+			"color": self.color,
 		}.items():
 			if val:
 				data[key] = val
@@ -83,6 +86,7 @@ class App:
 	                           # False: session dediee 'al-<app>'
 	exclude_all: bool = False  # True: ignoree par Start all / Stop all
 	color: str = ""  # hex "#rrggbb" -> petit carre colore dans le tree
+	browser: str = ""  # override du navigateur global ("" = toolbar)
 
 	@property
 	def label(self) -> str:
@@ -102,6 +106,7 @@ class App:
 			tmux_shared=bool(data.get("tmux_shared", False)),
 			exclude_all=bool(data.get("exclude_all", False)),
 			color=str(data.get("color", "") or ""),
+			browser=str(data.get("browser", "") or ""),
 		)
 
 	def to_dict(self) -> dict:
@@ -114,6 +119,7 @@ class App:
 			"tmux_shared": self.tmux_shared,
 			"exclude_all": self.exclude_all,
 			"color": self.color,
+			"browser": self.browser,
 		}.items():
 			if val:
 				data[key] = val

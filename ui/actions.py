@@ -234,7 +234,7 @@ class ActionsMixin(tk.Tk):
 			return
 		_, app, proc = t
 		if proc.browser_mode != "none" and proc.ports:
-			self._open_port(proc, proc.ports[0])
+			self._open_port(app, proc, proc.ports[0])
 		else:
 			self._status_lbl.config(
 				text=f"{proc.name}: no urls to open"
@@ -275,10 +275,20 @@ class ActionsMixin(tk.Tk):
 		)
 
 	def _refresh_move_btns(self) -> None:
-		"""Reorder interdit tant qu'un proc tourne : l'ordre pilote
-		les groupes tmux — le changer a chaud donnerait des sessions
-		hybrides (anciens panes dans l'ancien groupe)."""
-		state = tk.DISABLED if self._any_running() else tk.NORMAL
+		"""App : reorder interdit tant qu'un proc tourne (l'ordre
+		pilote les groupes tmux — le changer a chaud donnerait des
+		sessions hybrides). Proc : verrou limite a son app."""
+		t = self._resolve(self.tree.focus()) or self._selection()
+		if t and t[0] != "app":
+			app = t[1]
+			locked = any(
+				self._state_of(app, p)
+				in (STATUS_RUNNING, STATUS_EXTERNAL)
+				for p in app.processes
+			)
+		else:
+			locked = self._any_running()
+		state = tk.DISABLED if locked else tk.NORMAL
 		self._up_btn.config(state=state)
 		self._down_btn.config(state=state)
 
@@ -316,12 +326,15 @@ class ActionsMixin(tk.Tk):
 
 	# ---------------- Browser ----------------
 
+	def _browser_for(self, app: App) -> str:
+		"""Navigateur de l'app si override, sinon le global toolbar."""
+		return app.browser or self._browser_var.get()
+
 	def _launch_proc_browser(self) -> None:
 		target = self._selection()
 		if not target:
 			self._status_lbl.config(text="select an app or a process")
 			return
-		browser = self._browser_var.get()
 		if target[0] == "app":
 			app = target[1]
 			urls = app_urls(app)
@@ -366,7 +379,7 @@ class ActionsMixin(tk.Tk):
 			if port:
 				self._wait_port(port)
 			self._open_in_browser(
-				url, browser, proc.browser_mode == "tab",
+				url, self._browser_for(app), proc.browser_mode == "tab",
 			)
 
 		self._run_action(run)
@@ -380,12 +393,12 @@ class ActionsMixin(tk.Tk):
 	def _open_app_urls(self, app: App) -> None:
 		"""Ouvre toutes les URLs de l'app (menu 'Open URLs', Launch)."""
 		for url, tab in app_urls(app):
-			self._open_in_browser(url, self._browser_var.get(), tab)
+			self._open_in_browser(url, self._browser_for(app), tab)
 
-	def _open_port(self, proc: Process, port: int) -> None:
+	def _open_port(self, app: App, proc: Process, port: int) -> None:
 		self._open_in_browser(
 			port_url(port),
-			self._browser_var.get(),
+			self._browser_for(app),
 			proc.browser_mode == "tab",
 		)
 

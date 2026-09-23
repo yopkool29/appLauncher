@@ -78,7 +78,11 @@ class ProcessManager:
 				),
 				None,
 			)
-			return pane is not None and not pane["dead"]
+			return (
+				pane is not None
+				and not pane["dead"]
+				and not pane["wait"]
+			)
 		return rt.popen is not None and rt.popen.poll() is None
 
 	@staticmethod
@@ -95,7 +99,11 @@ class ProcessManager:
 		if rt is not None:
 			return self._rt_alive(rt)
 		pane = self._adopted_pane(app, proc)
-		return pane is not None and not pane["dead"]
+		return (
+			pane is not None
+			and not pane["dead"]
+			and not pane["wait"]
+		)
 
 	_PS_SNAP_TTL = 0.5  # snapshot /proc partage par le cycle de scan
 
@@ -135,7 +143,8 @@ class ProcessManager:
 		elif proc.tmux:
 			# pane adoptee apres redemarrage du launcher
 			pane = self._adopted_pane(app, proc)
-			if pane is not None and not pane["dead"]:
+			if pane is not None and not pane["dead"] \
+					and not pane["wait"]:
 				pid = pane["pid"]
 				if not pane["pipe"]:
 					tmux.arm_pipe(self.log_path(app, proc), pane["id"])
@@ -435,7 +444,8 @@ class ProcessManager:
 			# le cas RUNNING tmux est deja couvert par pid_tree ci-dessus
 			pane = self._adopted_pane(app, proc)
 			live = [p for p in proc.ports if portscan.port_listening(p)]
-			if pane is not None and not pane["dead"]:
+			if pane is not None and not pane["dead"] \
+					and not pane["wait"]:
 				state = STATUS_RUNNING
 			elif pane is not None or (proc.tmux and rt is not None):
 				state = STATUS_FINISHED

@@ -23,6 +23,7 @@ See `docs/apps.example.yaml` for a full commented skeleton.
 | `tmux_shared` | `false` | Join the preceding group's session as a tab (see below). |
 | `exclude_all` | `false` | Ignored by *Start all* / *Stop all* (name struck through). |
 | `color` | `""` | Hex color (`#rrggbb`) of the square shown in the tree. |
+| `browser` | `""` | Override the global browser for every process of this app (detected browser name, e.g. `"Chromium"`). Empty = toolbar selection. |
 | `processes` | `[]` | List of processes (below). |
 
 ### tmux grouping (ordered)
