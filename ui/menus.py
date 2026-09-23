@@ -20,6 +20,16 @@ class MenuMixin(tk.Tk):
 	def _build_menu(self) -> None:
 		menubar = tk.Menu(self, tearoff=0)
 		self.config(menu=menubar)
+		# palette native du menu : option_add ne retouche pas les
+		# menus deja crees -> restauration explicite au changement
+		# de theme (_apply_tk_colors)
+		self._menu_native = {
+			k: menubar.cget(k)
+			for k in (
+				"background", "foreground", "activebackground",
+				"activeforeground", "disabledforeground",
+			)
+		}
 
 		def _menu(label: str, spec: list) -> tk.Menu:
 			m = tk.Menu(menubar, tearoff=0)

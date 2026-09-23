@@ -26,6 +26,7 @@ from core.manager import ProcessManager, ProcStatus
 from ui.actions import ActionsMixin
 from ui.dialogs import LauncherLogDialog, PrefsDialog
 from ui.editing import EditMixin
+from ui.icons import emoji_image
 from ui.lifecycle import LifecycleMixin
 from ui.logs import LogsMixin
 from ui.menus import MenuMixin
@@ -213,39 +214,58 @@ class MainWindow(
 		self._toolbar = toolbar
 		toolbar.pack(side=tk.TOP, fill=tk.X, padx=6, pady=4)
 
-		def _btn(text: str, cmd, px=0, tip: str = "", **kw) -> ttk.Button:
-			b = ttk.Button(toolbar, text=text, command=cmd, **kw)
+		def _btn(
+			text: str, cmd, px=0, tip: str = "", emoji: str = "", **kw
+		) -> ttk.Button:
+			# icone couleur si l'emoji se rasterise ; sinon glyphe du
+			# texte (fallback). Glyphe seul (pas d'espace, non alnum)
+			# -> icone seule ; glyphe+label -> icone + label.
+			img = emoji_image(emoji) if emoji else None
+			label = text
+			if img is not None:
+				label = (
+					""
+					if not text[0].isalnum() and " " not in text
+					else f" {text.split(' ', 1)[-1]}"
+				)
+				# width explicite : casse le min-width ~100px
+				# que sv_ttk impose quand width est absent
+				kw["width"] = 0
+			b = ttk.Button(toolbar, text=label, command=cmd, **kw)
+			if img is not None:
+				b.configure(image=img, compound=tk.LEFT)
 			b.pack(side=tk.LEFT, padx=px)
 			if tip:
 				_tooltip(b, tip)
 			return b
 
-		_btn("+ App", self._add_app, tip="New app")
+		_btn("+ App", self._add_app, tip="New app", emoji="➕")
 		_btn("+ Process", self._add_process, 4,
-		     tip="New process (selected app)")
+		     tip="New process (selected app)", emoji="➕")
 		_btn("Edit", self._edit_selection, (0, 14), underline=0,
-		     tip="Edit selection (e)")
+		     tip="Edit selection (e)", emoji="✏️")
 		self._up_btn = _btn(
 			"↑", partial(self._move_selection, -1), (4, 0), width=3,
-			tip="Move up (locked while running)",
+			tip="Move up (locked while running)", emoji="🔼",
 		)
 		self._down_btn = _btn(
 			"↓", partial(self._move_selection, 1), width=3,
-			tip="Move down (locked while running)",
+			tip="Move down (locked while running)", emoji="🔽",
 		)
 		_btn("⇩", partial(self._tree_set_open, True), (4, 0), width=3,
-		     tip="Expand all")
+		     tip="Expand all", emoji="⏬")
 		_btn("⇧", partial(self._tree_set_open, False), (0, 14), width=3,
-		     tip="Collapse all")
+		     tip="Collapse all", emoji="⏫")
 		self._toggle_btn = _btn(
 			"▶ Start", self._toggle_proc, underline=2,
-			tip="Start / Stop selection (s)",
+			tip="Start / Stop selection (s)", emoji="▶️",
 		)
-		_btn("▶ Start all", self._start_all, 4, tip="Start all apps")
+		_btn("▶ Start all", self._start_all, 4, tip="Start all apps",
+		     emoji="⏩")
 		_btn(
 			"⏹ Stop all",
 			partial(self._run_action, self.manager.stop_all, self.apps),
-			(4, 14), tip="Stop all apps",
+			(4, 14), tip="Stop all apps", emoji="⏹️",
 		)
 		ttk.Label(toolbar, text="Filter:").pack(side=tk.LEFT)
 		entry = ttk.Entry(toolbar, textvariable=self._filter_var, width=18)
@@ -266,11 +286,12 @@ class MainWindow(
 			lambda _e: save_pref("browser", self._browser_var.get()),
 		)
 		_btn("Launch", self._launch_proc_browser, 4,
-		     tip="Start and open in browser")
-		_btn("⚙", self._open_prefs, width=3, tip="Preferences (Ctrl+,)")
+		     tip="Start and open in browser", emoji="🚀")
+		_btn("⚙", self._open_prefs, width=3, tip="Preferences (Ctrl+,)",
+		     emoji="⚙️")
 		_btn(
 			"◧", lambda: self._set_simple(not self._simple_var.get()),
-			width=3, tip="Simple mode: logs only (F11)",
+			width=3, tip="Simple mode: logs only (F11)", emoji="👁",
 		)
 		if len(self._themes) > 1:
 			theme_combo = ttk.Combobox(
@@ -356,14 +377,28 @@ class MainWindow(
 		logs_top.pack(fill=tk.X)
 		self._logs_target = ttk.Label(logs_top, text="Select a process")
 		self._logs_target.pack(side=tk.LEFT, padx=4, pady=2)
-		ttk.Button(logs_top, text="Refresh", command=self._reload_logs).pack(
-			side=tk.RIGHT, padx=4
-		)
-		ttk.Button(logs_top, text="Clear", command=self._clear_logs).pack(
-			side=tk.RIGHT
-		)
+		def _icon_btn(emoji, glyph, label, cmd, **kw):
+			"""Icone couleur (emoji rasterise) ou glyphe unicode
+			en fallback si Pillow/font absents."""
+			img = emoji_image(emoji)
+			b = ttk.Button(
+				logs_top,
+				text=f" {label}" if img else f"{glyph} {label}",
+				command=cmd,
+			)
+			if img is not None:
+				# width=0 : casse le min-width sv_ttk (~100px)
+				b.configure(image=img, compound=tk.LEFT, width=0)
+			b.pack(side=tk.RIGHT, **kw)
+
+		_icon_btn("🔄", "↻", "Refresh", self._reload_logs, padx=4)
 		ttk.Button(
 			logs_top, text="Clear all", command=self._clear_all_logs
+		).pack(side=tk.RIGHT, padx=(0, 4))
+		_icon_btn("🧹", "⌫", "Clear", self._clear_logs)
+		_icon_btn("📋", "⧉", "Copy", self._copy_log)
+		ttk.Button(
+			logs_top, text="Select all", command=self._select_all_log
 		).pack(side=tk.RIGHT, padx=(0, 4))
 		# sous-onglets : un Text par processus de l'app selectionnee
 		self._logs_nb = ttk.Notebook(logs_frame)

@@ -170,6 +170,30 @@ class LogsMixin(tk.Tk):
 		tab["size"] = 0
 		self._set_log_text(tab, "")
 
+	def _select_all_log(self) -> None:
+		"""Selectionne tout le texte du sous-onglet visible."""
+		tab = self._cur_log_tab()
+		if tab is None:
+			return
+		w = tab["text"]
+		w.tag_add("sel", "1.0", "end-1c")
+		w.mark_set("insert", "1.0")
+		w.focus_set()
+
+	def _copy_log(self) -> None:
+		"""Copie la selection s'il y en a une, sinon tout le log."""
+		tab = self._cur_log_tab()
+		if tab is None:
+			return
+		w = tab["text"]
+		try:
+			text = w.get("sel.first", "sel.last")
+		except tk.TclError:
+			text = w.get("1.0", "end-1c")
+		if text:
+			self.clipboard_clear()
+			self.clipboard_append(text)
+
 	def _clear_logs(self) -> None:
 		"""Vide le log du sous-onglet visible."""
 		tab = self._cur_log_tab()

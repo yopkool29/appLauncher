@@ -86,19 +86,39 @@ class ThemeMixin(tk.Tk):
 		)
 		for tab in self._log_tabs.values():
 			self._style_log_widget(tab["text"])
-		for opt, color in (
-			("*Menu.background", "#2b2b2b" if dark else "#f0f0f0"),
-			("*Menu.foreground", "#fafafa" if dark else "#000000"),
-			("*Menu.activeBackground", "#3f3f46" if dark else "#cce4ff"),
-			("*Menu.activeForeground", "#ffffff" if dark else "#000000"),
-			("*Menu.disabledForeground", "#6d6d6d" if dark else "#a3a3a3"),
-		):
-			self.option_add(opt, color)
+		native = getattr(self, "_menu_native", {})
+		menu_colors = {
+			"background": "#2b2b2b" if dark else native.get("background", "#f0f0f0"),
+			"foreground": "#fafafa" if dark else native.get("foreground", "#000000"),
+			"activebackground": "#3f3f46" if dark else native.get("activebackground", "#cce4ff"),
+			"activeforeground": "#ffffff" if dark else native.get("activeforeground", "#000000"),
+			"disabledforeground": "#6d6d6d" if dark else native.get("disabledforeground", "#a3a3a3"),
+		}
+		for opt, color in menu_colors.items():
+			# option_add pour les menus futurs (menus contextuels,
+			# crees a chaque clic droit)...
+			self.option_add(f"*Menu.{opt}", color)
+		# ... et reconfigure explicite du menubar existant
+		menubar = self.nametowidget(self.cget("menu"))
+		self._restyle_menu(menubar, menu_colors)
 		for tag, color in self._tag_colors().items():
 			self.tree.tag_configure(tag, foreground=color)
 		self.ports_tree.tag_configure(
 			"managed", foreground=self._tag_colors()["green"]
 		)
+
+	def _restyle_menu(self, menu: tk.Menu, colors: dict) -> None:
+		"""Reconfigure un menu et ses sous-menus en cascade
+		(option_add n'atteint pas les widgets deja crees)."""
+		menu.configure(colors)
+		end = menu.index("end")
+		for i in range((end or -1) + 1):
+			if menu.type(i) == "cascade":
+				sub = menu.entrycget(i, "menu")
+				if sub:
+					self._restyle_menu(
+						menu.nametowidget(sub), colors
+					)
 
 	def _style_log_widget(self, w: tk.Text) -> None:
 		"""Couleurs + tags ANSI d'un widget log (sous-onglet proc)."""

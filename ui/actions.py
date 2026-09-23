@@ -283,17 +283,26 @@ class ActionsMixin(tk.Tk):
 		self._down_btn.config(state=state)
 
 	def _refresh_toggle_btn(self) -> None:
+		# bouton avec icone couleur : pas de glyphe dans le texte
+		has_img = bool(self._toggle_btn.cget("image"))
+
+		def lbl(running: bool) -> str:
+			if has_img:
+				return " Stop" if running else " Start"
+			return "⏹ Stop" if running else "▶ Start"
+
 		target = self._sel_procs()
 		if not target:
 			t = self._selection()
 			if t and t[0] == "app":
 				self._toggle_btn.config(
-					text="⏹ Stop" if self._app_running(t[1])
-					else "▶ Start",
+					text=lbl(self._app_running(t[1])),
 					state=tk.NORMAL,
 				)
 				return
-			self._toggle_btn.config(text="▶ Start", state=tk.DISABLED)
+			self._toggle_btn.config(
+				text=lbl(False), state=tk.DISABLED
+			)
 			return
 		app, procs = target
 		running = all(
@@ -301,7 +310,7 @@ class ActionsMixin(tk.Tk):
 			for p in procs
 		)
 		self._toggle_btn.config(
-			text="⏹ Stop" if running else "▶ Start",
+			text=lbl(running),
 			state=tk.NORMAL,
 		)
 
