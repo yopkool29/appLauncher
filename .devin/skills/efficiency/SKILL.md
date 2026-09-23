@@ -1,3 +1,8 @@
+---
+name: efficiency
+description: Solve the task with the smallest possible code change. Use for focused bug fixes or small feature requests where minimal diff matters.
+---
+
 Solve the task with the smallest possible code change.
 
 Rules:

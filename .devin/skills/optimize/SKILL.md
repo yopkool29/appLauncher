@@ -1,3 +1,8 @@
+---
+name: optimize
+description: Make code much smaller and simpler while preserving observable behavior. Use when asked to shrink, simplify, deduplicate, or optimize existing code.
+---
+
 Refactor this code to make it much smaller and simpler, while preserving exactly its observable behavior.
 
 Primary goal: sharply reduce the amount of code and complexity, not merely improve its style.
