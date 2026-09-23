@@ -9,6 +9,9 @@
   `pipx`/`apt`/`--break-system-packages` (last resort).
 - tmux e2e: `tmux kill-server` then python scripts driving
   `core.manager.ProcessManager` + `tmux list-*` assertions.
+- Skill check (`.devin/skills/<name>`): `uvx --from
+  "git+https://github.com/agentskills/agentskills@main#subdirectory=skills-ref"
+  skills-ref validate <dir>`
 
 ## Layout
 
