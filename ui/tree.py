@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import tkinter as tk
 from typing import Dict, List, Optional, Tuple
@@ -56,6 +57,7 @@ def _fmt_uptime(seconds: float) -> str:
 class TreeMixin(tk.Tk):
 	apps: List[App]
 	_snapshot: Dict[Tuple[str, str], ProcStatus]
+	_cpu_last: Optional[Tuple[float, float]]
 
 	def _iid_app(self, app: App) -> str:
 		return f"app::{app.name}"
@@ -300,8 +302,23 @@ class TreeMixin(tk.Tk):
 			for s in self._snapshot.values()
 			if s.state == STATUS_RUNNING
 		)
+		# CPU du launcher lui-meme : os.times() = secondes CPU
+		# consommees, rapportees au temps ecoule entre deux refresh
+		cpu_s = os.times().user + os.times().system
+		now = time.time()
+		cpu = 0.0
+		if self._cpu_last is not None:
+			dt = now - self._cpu_last[1]
+			if dt > 0:
+				inst = (cpu_s - self._cpu_last[0]) / dt * 100
+				# EMA : un cycle avec subprocess (docker logs/ps)
+				# ne doit pas faire sauter l'affichage
+				cpu = self._cpu_ema * 0.65 + inst * 0.35
+				self._cpu_ema = cpu
+		self._cpu_last = (cpu_s, now)
 		self._status_lbl.config(
 			text=f"{len(self.apps)} apps • {n_up}/{n_proc} running "
+			f"• cpu {cpu:.1f}% "
 			f"• updated {time.strftime('%H:%M:%S')}"
 		)
 

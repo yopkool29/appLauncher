@@ -287,7 +287,7 @@ class ActionsMixin(tk.Tk):
 		des procs tmux et que tmux_attach est actif. Pas de re-attach
 		si un client est deja dessus : le nouveau pane s'affiche dans
 		le terminal existant."""
-		if not app.tmux_attach:
+		if not app.tmux_attach or not tmux.TMUX_OK:
 			return
 		proc = next((p for p in app.processes if p.tmux), None)
 		if proc:

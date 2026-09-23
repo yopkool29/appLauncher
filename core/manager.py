@@ -71,7 +71,7 @@ class ProcessManager:
 			pane = next(
 				(
 					p
-					for p in tmux.list_panes(rt.tmux)
+					for p in tmux.all_panes()
 					if p["id"] == rt.pane_id
 				),
 				None,

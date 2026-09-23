@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
@@ -42,8 +43,8 @@ class LogsMixin(tk.Tk):
 				"frame": frame, "text": text, "proc": proc, "size": -1,
 			}
 			self._style_log_widget(text)
-			# charge le contenu des autres onglets en arriere-plan
-			self._load_tab(self._log_tabs[proc.name])
+		# contenu charge a la selection (_on_log_tab/_reload_logs) : pas
+		# de docker logs pour les onglets jamais affiches
 
 	def _cur_log_tab(self) -> Optional[dict]:
 		"""Sous-onglet de log actuellement visible."""
@@ -87,6 +88,7 @@ class LogsMixin(tk.Tk):
 		if app is None:
 			return
 		proc: Process = tab["proc"]
+		tab["ts"] = time.time()
 		if proc.is_docker:
 			name = proc.name
 
@@ -131,13 +133,18 @@ class LogsMixin(tk.Tk):
 			self._load_tab(tab)
 
 	def _maybe_refresh_logs(self) -> None:
-		# ne recharge que l'onglet visible (docker logs est couteux)
+		# recharge uniquement le sous-onglet visible ET seulement si
+		# l'onglet principal Logs est affiche (docker logs est couteux)
+		if self.notebook.select() != str(self._logs_frame):
+			return
 		tab = self._cur_log_tab()
 		if tab is None or self._logs_app is None:
 			return
 		proc: Process = tab["proc"]
 		if proc.is_docker:
-			self._load_tab(tab)
+			# docker logs = subprocess couteux : 4s minimum entre reloads
+			if time.time() - tab.get("ts", 0.0) >= 4.0:
+				self._load_tab(tab)
 			return
 		path = self.manager.log_path(self._logs_app, proc)
 		if path.exists() and path.stat().st_size != tab["size"]:

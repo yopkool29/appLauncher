@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import threading
 import tkinter as tk
 from functools import partial
 from pathlib import Path
@@ -98,6 +99,11 @@ class MainWindow(
 		self._snapshot: Dict[Tuple[str, str], ProcStatus] = {}
 		self._port_owner: Dict[int, str] = {}
 		self._alive: bool = True
+		self._minimized: bool = False
+		self._ports_visible: bool = True  # onglet Ports selectionne au depart
+		self._wake = threading.Event()  # reveil anticipe du poller
+		self._cpu_last = None
+		self._cpu_ema = 0.0
 		self._closing: bool = False
 		self._confirming: bool = False
 		self._logs_app: Optional[App] = None
@@ -339,6 +345,9 @@ class MainWindow(
 		)
 		# Ports en premier onglet (avant Logs)
 		self.notebook.insert(0, ports_frame, text="Ports")
+		self.notebook.bind(
+			"<<NotebookTabChanged>>", lambda _e: self._on_main_tab()
+		)
 
 		self.tree.bind("<Delete>", lambda _e: self._delete_selection())
 		self.tree.bind("<Button-1>", self._on_cell_click)
@@ -352,6 +361,7 @@ class MainWindow(
 		)
 		self.tree.bind("<Double-1>", self._on_double_click)
 		self.bind("<Unmap>", self._on_unmap)
+		self.bind("<Map>", self._on_map)
 		self.bind("<Destroy>", self._on_destroy)
 		self.bind("<KeyPress>", self._on_keypress)
 

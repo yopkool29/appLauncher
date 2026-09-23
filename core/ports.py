@@ -5,10 +5,11 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 import psutil
 
@@ -22,62 +23,120 @@ class PortInfo:
 	process: str
 
 
-_tcp_cache_ts: float = 0.0
-_tcp_cache: Set[int] = set()
+_caches: Dict[str, tuple] = {}  # nom -> (ts, valeur)
 _docker_cache_ts: float = 0.0
 _docker_cache: List[dict] = []
 
 CACHE_TTL = 1.0
+LISTEN_TTL = 4.0  # all_listening : partage onglet Ports + Prefs
 
 
-def _conns(kind: str) -> list:
+def _cached(key: str, ttl: float, fn):
+	"""Cache TTL generique : fn() n'est re-evalue que si perime."""
+	ts, val = _caches.get(key, (0.0, None))
+	if time.time() - ts >= ttl:
+		val = fn()
+		_caches[key] = (time.time(), val)
+	return val
+
+
+def _net_scan() -> list:
 	try:
-		return psutil.net_connections(kind=kind)
+		return psutil.net_connections(kind="all")
 	except psutil.Error:
 		return []
 
 
-def all_listening() -> List[PortInfo]:
-	"""Tous les ports TCP/UDP en ecoute ou lies sur la machine."""
+def _conns() -> list:
+	"""net_connections('all') mis en cache — hors polling : onglet
+	Ports et kill externe uniquement (le poller vit sur /proc/net)."""
+	return _cached("conns", CACHE_TTL, _net_scan)
+
+
+def _proto(c) -> Optional[str]:
+	"""'tcp'/'udp' pour les sockets IPv4/IPv6 ; None sinon (unix,
+	raw — leur laddr est un chemin, pas un couple ip:port)."""
+	if c.family not in (socket.AF_INET, socket.AF_INET6):
+		return None
+	if c.type == socket.SOCK_STREAM:
+		return "tcp"
+	if c.type == socket.SOCK_DGRAM:
+		return "udp"
+	return None
+
+
+def _proc_name(pid: int) -> str:
+	"""/proc/<pid>/comm : un syscall, vs psutil.Process().name()
+	qui relit stat+status a chaque appel."""
+	try:
+		with open(f"/proc/{pid}/comm") as f:
+			return f.read().strip()
+	except OSError:
+		return "?"
+
+
+def _scan_listening() -> List[PortInfo]:
 	result: Dict[tuple, PortInfo] = {}
-	for kind in ("tcp", "udp"):
-		for c in _conns(kind):
-			if kind == "tcp" and c.status != "LISTEN":
-				continue
-			if not c.laddr:
-				continue
-			key = (c.laddr.port, kind, c.pid)
-			if key in result:
-				continue
-			name = ""
-			if c.pid:
-				try:
-					name = psutil.Process(c.pid).name()
-				except psutil.Error:
-					name = "?"
-			result[key] = PortInfo(
-				port=c.laddr.port,
-				proto=kind,
-				addr=str(c.laddr.ip),
-				pid=c.pid,
-				process=name,
-			)
+	for c in _conns():
+		proto = _proto(c)
+		if proto is None or not c.laddr:
+			continue
+		if proto == "tcp" and c.status != "LISTEN":
+			continue
+		key = (c.laddr.port, proto, c.pid)
+		if key in result:
+			continue
+		result[key] = PortInfo(
+			port=c.laddr.port,
+			proto=proto,
+			addr=str(c.laddr.ip),
+			pid=c.pid,
+			process=_proc_name(c.pid) if c.pid else "",
+		)
 	return sorted(result.values(), key=lambda p: (p.port, p.proto))
 
 
+def all_listening() -> List[PortInfo]:
+	"""Tous les ports TCP/UDP en ecoute ou lies sur la machine."""
+	return _cached("listen", LISTEN_TTL, _scan_listening)
+
+
+_SOCK_RE = re.compile(r"socket:\[(\d+)\]")
+
+
+def _parse_socket_ports() -> Dict[str, Tuple[int, str]]:
+	out: Dict[str, Tuple[int, str]] = {}
+	for f, proto, listen_only in (
+		("/proc/net/tcp", "tcp", True),
+		("/proc/net/tcp6", "tcp", True),
+		("/proc/net/udp", "udp", False),
+		("/proc/net/udp6", "udp", False),
+	):
+		try:
+			with open(f) as fh:
+				next(fh)  # header
+				for line in fh:
+					p = line.split()
+					if len(p) <= 9 or (listen_only and p[3] != "0A"):
+						continue
+					out[p[9]] = (int(p[1].rsplit(":", 1)[1], 16), proto)
+		except OSError:
+			pass
+	return out
+
+
+def _socket_ports() -> Dict[str, Tuple[int, str]]:
+	"""inode -> (port, 'tcp'|'udp') pour TCP LISTEN et UDP lie, lu dans
+	/proc/net — sans resolution de PID : net_connections perd ~70ms
+	a parcourir /proc/*/fd de tous les processus."""
+	return _cached("sock", CACHE_TTL, _parse_socket_ports)
+
+
 def listening_tcp_ports() -> Set[int]:
-	"""Set des ports TCP en ecoute, avec cache court pour les refresh rapides."""
-	global _tcp_cache_ts, _tcp_cache
-	now = time.time()
-	if now - _tcp_cache_ts < CACHE_TTL:
-		return _tcp_cache
-	_tcp_cache = {
-		c.laddr.port
-		for c in _conns("tcp")
-		if c.status == "LISTEN" and c.laddr
+	"""Set des ports TCP en ecoute (/proc/net, pas de resolution PID)."""
+	return {
+		port for port, proto in _socket_ports().values() if proto == "tcp"
 	}
-	_tcp_cache_ts = now
-	return _tcp_cache
 
 
 def port_listening(port: int) -> bool:
@@ -85,15 +144,24 @@ def port_listening(port: int) -> bool:
 
 
 def ports_for_pids(pids: List[int]) -> List[int]:
-	"""Ports en ecoute appartenant a un arbre de PIDs."""
-	pidset = set(pids)
+	"""Ports en ecoute appartenant a un arbre de PIDs — inodes de
+	/proc/net matches contre /proc/<pid>/fd : seuls les fds de nos
+	processus sont lus, pas ceux de tout le systeme."""
+	want = _socket_ports()
 	found: Set[int] = set()
-	for kind in ("tcp", "udp"):
-		for c in _conns(kind):
-			if c.pid in pidset and c.laddr:
-				if kind == "tcp" and c.status != "LISTEN":
-					continue
-				found.add(c.laddr.port)
+	for pid in pids:
+		try:
+			fds = os.listdir(f"/proc/{pid}/fd")
+		except OSError:
+			continue
+		for fd in fds:
+			try:
+				link = os.readlink(f"/proc/{pid}/fd/{fd}")
+			except OSError:
+				continue
+			m = _SOCK_RE.match(link)
+			if m and m.group(1) in want:
+				found.add(want[m.group(1)][0])
 	return sorted(found)
 
 
@@ -102,8 +170,9 @@ def pids_on_ports(ports: List[int]) -> List[int]:
 	wanted = set(ports)
 	return sorted({
 		c.pid
-		for c in _conns("tcp")
-		if c.status == "LISTEN" and c.laddr and c.laddr.port in wanted and c.pid
+		for c in _conns()
+		if _proto(c) == "tcp" and c.status == "LISTEN"
+		and c.laddr and c.laddr.port in wanted and c.pid
 	})
 
 

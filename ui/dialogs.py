@@ -643,7 +643,7 @@ class PrefsDialog(_Modal[None]):
 		self._ports.delete(*self._ports.get_children())
 		for row in sorted(rows):
 			self._ports.insert("", tk.END, values=row)
-		self.after(2000, self._refresh_ports)
+		self.after(4000, self._refresh_ports)
 
 	def _ok(self) -> None:
 		save_pref("cmd_wrapper", self._wrapper.get().strip())

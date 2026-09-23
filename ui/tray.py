@@ -142,6 +142,7 @@ class TrayMixin(tk.Tk):
 	def _on_unmap(self, event) -> None:
 		if event.widget is not self or not self._alive or self._closing:
 			return
+		self._minimized = True  # fenetre cachee -> polling ralenti
 		if (
 			self.state() == "iconic"
 			and self._tray_live
@@ -161,6 +162,11 @@ class TrayMixin(tk.Tk):
 			self.iconify()
 		else:
 			self._restore()
+
+	def _on_map(self, event) -> None:
+		if event.widget is self:
+			self._minimized = False
+			self._wake.set()  # reveille le poller : refresh immediat
 
 	def _restore(self) -> None:
 		self._set_skip_taskbar(False)
@@ -352,6 +358,7 @@ class TrayMixin(tk.Tk):
 		"""Chemin unique de destruction : watchdog externe + destroy."""
 		self._closing = True
 		self._alive = False
+		self._wake.set()  # reveille le poller pour sortie immediate
 		self._hard_exit_watchdog()
 		if idle:
 			self.after_idle(self.destroy)

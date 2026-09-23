@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -154,23 +155,44 @@ def owned_sessions() -> List[str]:
 	]
 
 
+_panes_cache: Tuple[float, List[dict]] = (0.0, [])
+
+
+def all_panes() -> List[dict]:
+	"""Tous les panes de nos sessions, avec leur session — cache
+	0.5s : un seul list-panes -a sert tout un cycle de polling
+	(status() l'appelait une fois par processus)."""
+	global _panes_cache
+	if not TMUX_OK:
+		return []  # pas de binaire/mode sans tmux : aucun subprocess
+	ts, cached = _panes_cache
+	if time.time() - ts < 0.5:
+		return cached
+	owned = set(owned_sessions())
+	out = (
+		_out(
+			"list-panes", "-a", "-F",
+			"#{session_name}\t#{pane_id}\t#{@al-proc}\t#{@al-app}"
+			"\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}",
+		)
+		if owned
+		else ""
+	)
+	panes = [
+		{**_pane(p[1:]), "session": p[0]}
+		for p in (line.split("\t") for line in out.splitlines())
+		if len(p) == 7 and p[0] in owned
+	]
+	_panes_cache = (time.time(), panes)
+	return panes
+
+
 def find_pane_anywhere(app_name: str, proc_name: str) -> Optional[dict]:
 	"""Pane taggee dans N'IMPORTE quelle session a nous — robuste
 	aux reordonnances : le pane reste ou il a ete cree."""
-	owned = set(owned_sessions())
-	if not owned:
-		return None
-	out = _out(
-		"list-panes", "-a", "-F",
-		"#{session_name}\t#{pane_id}\t#{@al-proc}\t#{@al-app}"
-		"\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}",
-	)
-	for line in out.splitlines():
-		p = line.split("\t")
-		if len(p) != 7 or p[0] not in owned:
-			continue
-		if p[2] == proc_name and p[3] in ("", app_name):
-			return {**_pane(p[1:]), "session": p[0]}
+	for pane in all_panes():
+		if pane["proc"] == proc_name and pane["app"] in ("", app_name):
+			return pane
 	return None
 
 
