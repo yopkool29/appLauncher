@@ -60,11 +60,19 @@ class MenuMixin(tk.Tk):
 		])
 		m_view = _menu("View", [
 			("Logs", "", lambda: self.notebook.select(self._logs_frame)),
-			("Ports", "", lambda: self.notebook.select(self._ports_frame)),
+			("Ports", "", lambda: (
+				str(self._ports_frame) in self.notebook.tabs()
+				and self.notebook.select(self._ports_frame)
+			)),
 			("Launcher log", "", self._open_log_viewer),
 			None,
 			("Refresh", "F5", self._refresh_all),
 		])
+		m_view.insert_checkbutton(
+			0, label="Simple mode", accelerator="F11",
+			variable=self._simple_var,
+			command=lambda: self._set_simple(self._simple_var.get()),
+		)
 		if len(self._themes) > 1:
 			m_theme = tk.Menu(m_view, tearoff=0)
 			for lbl, _tid in self._themes:
@@ -84,6 +92,10 @@ class MenuMixin(tk.Tk):
 		self.bind("<Control-q>", lambda _e: self._on_close())
 		self.bind("<Control-comma>", lambda _e: self._open_prefs())
 		self.bind("<F5>", lambda _e: self._refresh_all())
+		self.bind(
+			"<F11>",
+			lambda _e: self._set_simple(not self._simple_var.get()),
+		)
 
 	def _show_about(self) -> None:
 		d = tk.Toplevel(self)

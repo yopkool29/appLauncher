@@ -112,6 +112,8 @@ class PollMixin(tk.Tk):
 					elif kind == "attach":
 						app, proc = payload
 						self._tmux_attach(app, proc)
+					elif kind == "raise":
+						self._raise_existing()
 					elif kind == "tray_show":
 						self._toggle_window()
 					elif kind == "tray_quit":

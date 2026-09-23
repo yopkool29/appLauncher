@@ -212,13 +212,26 @@ def load_config(path: Path) -> List[App]:
 	return [App.from_dict(a) for a in data.get("apps", []) or []]
 
 
+def load_window_config(path: Path) -> dict:
+	"""Section 'window:' optionnelle : min_width, min_height."""
+	try:
+		data = yaml.safe_load(path.read_text()) or {}
+	except (OSError, yaml.YAMLError):
+		return {}
+	w = data.get("window") if isinstance(data, dict) else None
+	return w if isinstance(w, dict) else {}
+
+
 def save_config(path: Path, apps: List[App]) -> None:
 	header = "# App Launcher catalog - editable here or via the GUI\n"
-	body = yaml.safe_dump(
-		{"apps": [a.to_dict() for a in apps]},
-		allow_unicode=True,
-		sort_keys=False,
-	)
+	try:
+		data = yaml.safe_load(path.read_text()) or {}
+	except (OSError, yaml.YAMLError):
+		data = {}
+	if not isinstance(data, dict):
+		data = {}
+	data["apps"] = [a.to_dict() for a in apps]  # garde 'window:' etc.
+	body = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 	path.write_text(header + body)
 
 

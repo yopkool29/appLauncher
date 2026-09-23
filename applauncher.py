@@ -7,8 +7,10 @@ docker compose, docker run...), with status, ports and central logs.
 import argparse
 import logging
 import os
+import socket
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -16,6 +18,32 @@ from core.config import default_config_path, default_logs_dir
 from core.logging_helpers import setup_logging
 import core.manager as manager
 from ui.main_window import MainWindow
+
+
+def _instance_socket() -> Optional[socket.socket]:
+	"""Single instance : si une instance ecoute deja, on lui envoie
+	'show' et on rend None (le caller quitte) ; sinon socket serveur
+	pret a recevoir les prochains relances."""
+	path = Path(
+		os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+	) / f"applauncher-{os.getuid()}.sock"
+	try:
+		s = socket.socket(socket.AF_UNIX)
+		s.connect(str(path))
+		s.sendall(b"show")
+		s.close()
+		print("already running — raised existing window")
+		return None
+	except OSError:
+		pass
+	try:
+		path.unlink()  # socket stale d'un crash precedent
+	except OSError:
+		pass
+	srv = socket.socket(socket.AF_UNIX)
+	srv.bind(str(path))
+	srv.listen(2)
+	return srv
 
 
 def main() -> None:
@@ -35,7 +63,10 @@ def main() -> None:
 	args = parser.parse_args()
 	manager.LOGS_DIR = args.logs_dir
 	setup_logging(args.logs_dir / "applauncher.log")
-	win = MainWindow(args.config)
+	srv = _instance_socket()
+	if srv is None:
+		return
+	win = MainWindow(args.config, srv)
 	win.mainloop()
 	logging.getLogger(__name__).info("mainloop exited")
 	# os._exit : saute la finalisation de l'interpreteur, qui peut bloquer

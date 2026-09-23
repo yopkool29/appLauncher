@@ -168,6 +168,29 @@ class TrayMixin(tk.Tk):
 			self._minimized = False
 			self._wake.set()  # reveille le poller : refresh immediat
 
+	def _start_instance_listener(self) -> None:
+		"""Un second lancement envoie 'show' sur le socket unix :
+		on remontre la fenetre existante au lieu d'ouvrir un doublon."""
+		srv = self._instance_sock
+		if srv is None:
+			return
+
+		def loop() -> None:
+			while self._alive:
+				try:
+					conn, _ = srv.accept()
+				except OSError:
+					return
+				conn.close()
+				self._queue.put(("raise", None))
+
+		threading.Thread(target=loop, daemon=True).start()
+
+	def _raise_existing(self) -> None:
+		"""Relance detectee : restore + focus la fenetre existante."""
+		self._restore()
+		self.focus_force()
+
 	def _restore(self) -> None:
 		self._set_skip_taskbar(False)
 		self.deiconify()
@@ -359,6 +382,13 @@ class TrayMixin(tk.Tk):
 		self._closing = True
 		self._alive = False
 		self._wake.set()  # reveille le poller pour sortie immediate
+		if self._instance_sock is not None:
+			try:
+				path = self._instance_sock.getsockname()
+				self._instance_sock.close()  # debloque accept()
+				os.unlink(path)
+			except OSError:
+				pass
 		self._hard_exit_watchdog()
 		if idle:
 			self.after_idle(self.destroy)

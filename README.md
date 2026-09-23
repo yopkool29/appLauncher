@@ -9,6 +9,10 @@ of local apps:
 each app groups one or more processes (bash commands, `docker compose`,
 `docker run`...), with live status, detected ports and per-process logs.
 
+Processes can also run inside **tmux**: shared or dedicated sessions,
+windows, panes and layouts, with terminal auto-attach — panes survive
+a launcher restart and get re-adopted.
+
 All your applications in one place: start them in one click without
 digging through directories, see at a glance which ports are in use
 and who owns them, open the app in your browser directly.

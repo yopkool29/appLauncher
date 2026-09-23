@@ -5,12 +5,18 @@
 # Everything is optional except `name:` on apps and `name:`/`cmd:` on
 # processes. Edit this file directly or via the GUI (File > New App).
 
+# Main window constraints (optional, defaults 800x450)
+window:
+  min_width: 400
+  min_height: 400
+
 apps:
 
   # ---------------------------------------------------------
   # Simple shell app: one server + a background task, no tmux.
   # ---------------------------------------------------------
   - name: "demo locale"
+    alias: "Demo locale"             # display name in the tree (name = id)
     url: "http://localhost:8000"     # opened by Open URLs / Launch
     launch_port: 8000                # port waited on by Launch
     color: "#20b2aa"                 # colored square in the tree

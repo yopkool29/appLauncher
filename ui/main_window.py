@@ -17,6 +17,7 @@ from core.config import (
 	Process,
 	load_config,
 	load_pref,
+	load_window_config,
 	save_pref,
 )
 from core.manager import ProcessManager, ProcStatus
@@ -85,11 +86,20 @@ class MainWindow(
 	TrayMixin,
 	tk.Tk,
 ):
-	def __init__(self, config_path: Path) -> None:
+	def __init__(
+		self, config_path: Path, instance_sock=None
+	) -> None:
 		super().__init__(className="applauncher")
 		self.title("App Launcher")
 		self.geometry(DEFAULT_SIZE)
-		self.minsize(MIN_W, MIN_H)
+		win = load_window_config(config_path)
+		try:
+			self.minsize(
+				int(win.get("min_width", MIN_W)),
+				int(win.get("min_height", MIN_H)),
+			)
+		except (TypeError, ValueError):
+			self.minsize(MIN_W, MIN_H)
 
 		self.config_path = config_path
 		self.apps: List[App] = load_config(config_path)
@@ -102,6 +112,7 @@ class MainWindow(
 		self._minimized: bool = False
 		self._ports_visible: bool = True  # onglet Ports selectionne au depart
 		self._wake = threading.Event()  # reveil anticipe du poller
+		self._instance_sock = instance_sock  # single-instance (None = tests)
 		self._cpu_last = None
 		self._cpu_ema = 0.0
 		self._closing: bool = False
@@ -124,6 +135,10 @@ class MainWindow(
 		self._filter_var = tk.StringVar()
 		self._prefs_dialog: Optional[tk.Toplevel] = None
 		self._log_dialog: Optional[tk.Toplevel] = None
+		self._simple_var = tk.BooleanVar(
+			value=load_pref("simple_mode", "0") == "1"
+		)
+		self._sash_pos = 580  # position sash du paned hors mode simple
 		self._init_themes()
 		browser = load_pref("browser", "")
 		# compat ancienne pref ("firefox") -> nouvelle cle ("Firefox ...")
@@ -135,11 +150,14 @@ class MainWindow(
 		self._browser_var = tk.StringVar(value=browser)
 
 		self._build_ui()
+		if self._simple_var.get():
+			self._set_simple(True)
 		self._set_theme(self._theme)
 		self._reload_tree()
 		self.protocol("WM_DELETE_WINDOW", self._on_close)
 		self._setup_tray()
 		self._start_poller()
+		self._start_instance_listener()
 		self.after(150, self._drain_queue)
 
 	# ---------------- UI ----------------
@@ -160,9 +178,32 @@ class MainWindow(
 	def _open_log_viewer(self) -> None:
 		self._open_dialog("_log_dialog", LauncherLogDialog)
 
+	def _set_simple(self, on: bool) -> None:
+		"""Mode simple : ne garde que le panneau des logs (tree,
+		toolbar et onglet Ports masques). Toggle : F11 / menu View."""
+		self._simple_var.set(on)
+		if on:
+			if self.winfo_viewable():
+				self._sash_pos = self._paned.sashpos(0)
+			self.notebook.select(self._logs_frame)
+			self.notebook.forget(self._ports_frame)
+			self._paned.forget(self._left)
+			self._toolbar.pack_forget()
+		else:
+			self._toolbar.pack(
+				side=tk.TOP, fill=tk.X, padx=6, pady=4,
+				before=self._paned,
+			)
+			self._paned.insert(0, self._left, weight=3)
+			self.notebook.insert(0, self._ports_frame, text="Ports")
+			pos = self._sash_pos
+			self.after_idle(lambda: self._paned.sashpos(0, pos))
+		save_pref("simple_mode", "1" if on else "0")
+
 	def _build_ui(self) -> None:
 		self._build_menu()
 		toolbar = ttk.Frame(self)
+		self._toolbar = toolbar
 		toolbar.pack(side=tk.TOP, fill=tk.X, padx=6, pady=4)
 
 		def _btn(text: str, cmd, px=0, tip: str = "", **kw) -> ttk.Button:
@@ -220,6 +261,10 @@ class MainWindow(
 		_btn("Launch", self._launch_proc_browser, 4,
 		     tip="Start and open in browser")
 		_btn("⚙", self._open_prefs, width=3, tip="Preferences (Ctrl+,)")
+		_btn(
+			"◧", lambda: self._set_simple(not self._simple_var.get()),
+			width=3, tip="Simple mode: logs only (F11)",
+		)
 		if len(self._themes) > 1:
 			theme_combo = ttk.Combobox(
 				toolbar,
@@ -246,9 +291,11 @@ class MainWindow(
 		self._status_lbl.pack(side=tk.RIGHT, padx=6)
 
 		paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+		self._paned = paned
 		paned.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
 
 		left = ttk.Frame(paned)
+		self._left = left
 		self.tree = ttk.Treeview(
 			left,
 			columns=("state", "tmux", "browser", "pid", "ports", "uptime"),
