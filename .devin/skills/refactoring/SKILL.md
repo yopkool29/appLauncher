@@ -1,762 +1,406 @@
-# AppLauncher — Architecture, Refactoring & Optimization Skill
+---
+name: refactoring
+description: Progressive, pragmatic refactoring for the appLauncher project (Python/Tkinter). Architecture analysis, coupling and duplication reduction, anti-overengineering. Use for any refactor, reorganization, or structural improvement request.
+---
+
+# AppLauncher — Python Refactoring Skill
 
 ## Mission
 
-Tu es un architecte logiciel senior spécialisé en Python.
+You are a senior software architect specialized in Python. You work on an
+existing Python application: `yopkool29/appLauncher`.
 
-Tu travailles sur le projet existant :
+Your goal is to progressively improve the project to achieve:
 
-`yopkool29/appLauncher`
+* better separation of concerns
+* less coupling and duplication
+* better readability, testability, and maintainability
+* good performance where it is genuinely needed
+* an architecture that makes the application easy to evolve
 
-Le projet est une application desktop Python/Tkinter permettant de gérer et lancer des applications/processus locaux, avec notamment :
-
-* gestion des processus
-* start / stop / restart
-* Docker
-* tmux
-* détection des ports
-* logs
-* navigateur
-* system tray
-* configuration YAML
-* préférences utilisateur
-* thèmes
-* interface Tkinter
-
-Le projet EXISTE DÉJÀ.
-
-Ta mission n'est PAS de réécrire l'application.
-
-Ta mission est de faire évoluer progressivement son architecture afin d'obtenir :
-
-* une meilleure séparation des responsabilités
-* une meilleure lisibilité
-* moins de duplication
-* moins de couplage
-* une meilleure testabilité
-* une meilleure maintenabilité
-* de meilleures performances lorsque cela est réellement nécessaire
-* une architecture permettant d'ajouter de nouvelles fonctionnalités plus facilement
+The project already exists and works. **You must start from what exists** —
+never rewrite to apply a theoretical architecture.
 
 ---
 
-# RÈGLE ABSOLUE : PRÉSERVER L'EXISTANT
+# GUIDING PRINCIPLES
 
-Le comportement actuel de l'application doit être considéré comme une contrainte.
+> **Reduce overall complexity, do not move complexity around.**
 
-Avant de modifier du code :
+A change is an improvement only if it brings a concrete benefit: reduced
+coupling, better separation of concerns, testability, less duplication,
+readability, easier evolution, or justified performance.
 
-1. comprendre son fonctionnement
-2. rechercher ses usages
-3. rechercher les tests existants
-4. identifier les effets de bord
-5. identifier les dépendances
-6. identifier les comportements implicites
+The number of files, classes, or layers is **never** a quality metric in
+itself. More files, interfaces, layers, or design patterns is not the goal.
 
-Ne jamais effectuer une réécriture massive.
+When several architectures solve the problem correctly, prefer the one with
+fewer concepts, files, classes, abstractions, dependencies, and
+configuration — provided it preserves good separation of concerns,
+testability, readability, and evolvability.
 
-Ne jamais déplacer des dizaines de fichiers simplement pour obtenir
-une architecture théorique.
-
-Le refactoring doit être progressif.
+**Always prefer the simplest solution that correctly solves the problem.**
 
 ---
 
-# PHASE 1 — COMPRENDRE LE PROJET
+# ABSOLUTE RULE: PRESERVE THE EXISTING
 
-Avant toute proposition de refactoring, analyser :
+The application may contain undocumented implicit behaviors. Treat current
+behavior as a constraint.
 
-* `applauncher.py`
-* `core/`
-* `ui/`
-* configuration
-* gestion des processus
-* gestion Docker
-* gestion tmux
-* gestion des ports
-* gestion des logs
-* navigateur
-* system tray
-* préférences
-* tests
+Before modifying code:
 
-Construire mentalement une carte :
+1. understand how it works
+2. find its usages
+3. find the tests
+4. identify side effects
+5. identify dependencies
+6. identify implicit behaviors
+
+Never perform a massive rewrite without justification. Never move files en
+masse just to obtain a theoretical architecture. Refactoring must be
+progressive.
+
+---
+
+# STOP CONDITION
+
+If the current code is sufficiently clear, consistent, testable,
+maintainable, and loosely coupled, then **do not refactor it**.
+
+The skill must be able to conclude:
+
+> "No refactoring needed."
+
+Never modify code just to satisfy an architecture or a design pattern.
+
+---
+
+# PROJECT SPECIFICS
+
+## Layout
 
 ```text
-UI
- ↓
-Application / orchestration
- ↓
-Domain / règles métier
- ↓
-Infrastructure
+applauncher.py   — entry point (--config, --logs-dir)
+core/            — config (yaml+paths), manager (lifecycle), tmux,
+                   ports, logging_helpers
+ui/              — Tk mixins: main_window, tree, menus, actions, dialogs,
+                   editing, logs, polling, theme, tray
 ```
 
-Identifier les dépendances réelles avant de proposer des changements.
+User files: `apps.yaml`, `~/.config/applauncher/prefs.json`, logs under
+`--logs-dir` (default: XDG state dir, or the repo in dev).
+
+## Tkinter mixins — the main refactoring hazard
+
+`ui/` is organized into mixins sharing a common `self`: methods and
+attributes are defined in one mixin and used in another, with no explicit
+declaration.
+
+Before moving, renaming, or deleting a method or attribute:
+
+1. `grep` its name across **all** of `ui/`, not just its own file
+2. check the MRO of the class composing the mixins
+3. check attributes initialized in another mixin's `__init__` or `setup_*`
+
+This is where an "obvious" refactoring breaks things most easily.
+
+## Verification — no test suite
+
+The project has no test framework. Verification is done via:
+
+```text
+mypy .            — typecheck (mypy installed via pipx; third-party stubs
+                    live in the pipx venv:
+                    pipx inject mypy types-psutil types-PyYAML)
+tmux e2e          — `tmux kill-server` then python scripts driving
+                    core.manager.ProcessManager with `tmux list-*`
+                    assertions
+```
+
+System python is PEP 668 managed — no direct `pip install`.
+
+After each change: `mypy .` at minimum, plus a tmux e2e when the change
+touches the process lifecycle.
 
 ---
 
-# PHASE 2 — CARTOGRAPHIE DES RESPONSABILITÉS
+# WORKFLOW
 
-Pour chaque module important, déterminer :
+## Phase 1 — Understand the project
 
-1. quelle est sa responsabilité actuelle ?
-2. quelles autres responsabilités possède-t-il ?
-3. de quoi dépend-il ?
-4. qui dépend de lui ?
-5. peut-il être testé indépendamment ?
-6. contient-il de la logique métier ?
-7. contient-il de l'I/O ?
-8. contient-il de la logique UI ?
+Before any significant change, analyze: tree structure, modules, entry
+points, imports, dependencies, configuration, UI, processes, Docker, tmux,
+ports, logs, browser, system tray, preferences.
 
-Créer une cartographie sous cette forme :
+Identify: where business logic, UI logic, system access, configuration, and
+external calls live; which classes have multiple responsibilities; which
+functions are too complex; which parts are tightly coupled.
+
+**Do not modify files during this phase.**
+
+## Phase 2 — Map the architecture
+
+For each important module: primary responsibility, secondary
+responsibilities, dependencies, dependents, side effects, testability,
+coupling level.
 
 ```text
 Module
-├── responsabilité principale
-├── responsabilités secondaires
-├── dépendances
-├── dépendants
-└── problèmes détectés
+├── primary responsibility
+├── secondary responsibilities
+├── dependencies
+├── dependents
+└── possible issues
 ```
 
----
+Do not impose a different architecture before understanding the existing
+one.
 
-# PHASE 3 — IDENTIFIER LES COUCHES
+## Phase 3 — Progressive refactoring
 
-Ne pas imposer immédiatement une nouvelle architecture.
-
-Identifier progressivement les responsabilités existantes.
-
-## Presentation / UI
-
-Tout ce qui concerne :
-
-* Tkinter
-* widgets
-* fenêtres
-* menus
-* événements utilisateur
-* affichage
-* dialogs
-* sélection
-* couleurs
-* thèmes
-* system tray UI
-
-La UI ne doit pas contenir de logique métier complexe.
-
-Exemple à éviter :
-
-```python
-def on_start_clicked():
-    # validation métier
-    # recherche du process
-    # création du process
-    # gestion docker
-    # mise à jour DB
-    # affichage UI
-```
-
-La UI doit principalement traduire une action utilisateur
-en appel à la couche applicative.
-
----
-
-# Application
-
-Cette couche orchestre les cas d'utilisation.
-
-Exemples :
+Always work in small steps:
 
 ```text
-StartApplication
-StopApplication
-RestartApplication
-StartProcess
-StopProcess
-RestartProcess
-OpenApplicationUrls
-AttachToTmux
-RefreshApplicationStatus
+Existing code
+     ↓
+Identify the problem
+     ↓
+Add / adapt verification (mypy, e2e, characterization)
+     ↓
+Extract a responsibility
+     ↓
+Reconnect the old code
+     ↓
+Verify
+     ↓
+Delete the now-unneeded old code
 ```
 
-Un use case doit orchestrer les opérations nécessaires
-sans dépendre directement de Tkinter.
-
-Exemple :
-
-```python
-class StartApplication:
-    def __init__(
-        self,
-        process_manager,
-        application_repository,
-    ):
-        ...
-```
+Avoid: `Existing code → Complete new architecture → Massive rewrite`.
 
 ---
 
-# Domain
+# RESPONSIBILITIES AND DEPENDENCY DIRECTION
 
-Le domaine contient les règles métier réelles.
+## Layers
 
-Exemples potentiels :
+* **Presentation / UI** — Tkinter, widgets, windows, menus, dialogs, user
+  events, display, selection, themes, system tray. No complex business
+  logic: `interaction → call application logic → display result`.
+* **Application** — orchestration of operations (start/stop/restart,
+  status, URLs, tmux attach...). Plain functions are enough; create an
+  abstraction only when the orchestration justifies it.
+* **Domain** — real business rules (Application, Process, ProcessStatus,
+  Port, TmuxConfiguration...). Should not depend on tkinter, subprocess,
+  psutil, Docker, tmux, filesystem, browser. Do not artificially create
+  this layer if the project lacks enough business logic to justify it.
+* **Infrastructure** — system interactions: ProcessManager, TmuxManager,
+  PortScanner, YamlConfig, BrowserLauncher... May use subprocess, psutil,
+  Docker, tmux, filesystem, OS, user environment.
+
+## Dependency direction
 
 ```text
+Presentation
+      ↓
 Application
-Process
-ProcessStatus
-Port
-BrowserMode
-TmuxConfiguration
-```
-
-Le domaine ne doit pas dépendre de :
-
-* tkinter
-* psutil
-* subprocess
-* docker CLI
-* tmux CLI
-* requests
-* filesystem
-* environnement utilisateur
-
-Le domaine doit rester aussi pur que possible.
-
----
-
-# Infrastructure
-
-L'infrastructure contient les détails techniques.
-
-Exemples :
-
-```text
-ProcessManager
-DockerManager
-TmuxManager
-PortScanner
-Filesystem
-YamlConfigRepository
-PreferencesRepository
-BrowserLauncher
-SystemProcessAdapter
-```
-
-Ces composants peuvent utiliser :
-
-* subprocess
-* psutil
-* Docker
-* tmux
-* filesystem
-* environnement
-* OS
-* navigateur
-
-Mais ces détails ne doivent pas contaminer le domaine.
-
----
-
-# DIRECTION DES DÉPENDANCES
-
-Favoriser :
-
-```text
-UI
- ↓
-Application
- ↓
+      ↓
 Domain
- ↑
+      ↑
 Infrastructure
 ```
 
-Éviter :
+Avoid `Domain → tkinter / Docker / subprocess / psutil`. Do not introduce
+an abstraction just to remove a trivial dependency: the decoupling level
+must be proportional to the project's real complexity.
+
+---
+
+# ANTI-OVERENGINEERING
+
+## General rule
+
+Never turn the project into "Enterprise Clean Architecture". The
+architecture must stay proportional to the project.
+
+## Before creating a class
+
+1. does this class have a clear responsibility?
+2. is that responsibility important enough?
+3. would a function not suffice?
+4. does this class make the code simpler?
+5. does it genuinely improve testability or evolution?
+
+If a function suffices: **use a function.**
+
+## Before creating an interface or use case
+
+No automatic `*Interface`, `*UseCase`, `*Provider`, `*Factory`. Create an
+abstraction only if: several implementations exist, an implementation must
+be replaceable, an external component must be isolated, a test genuinely
+benefits from that boundary, or the abstraction genuinely reduces coupling.
+
+## Git
+
+Do not create a repository or commit without the user's express request.
+
+---
+
+# TECHNICAL DOMAINS
+
+The anti-overengineering rule applies to every domain below: isolate
+progressively, only when coupling is real.
+
+## Processes
+
+Analyze: subprocess, psutil, process trees, polling, start, stop, restart,
+process detection, status retrieval.
+
+Look for: useless system calls, processes launched multiple times,
+excessive polling, information fetched in a loop, duplicated logic.
+
+Do not create a huge `ProcessManager`. Split (`ProcessLifecycle`,
+`ProcessDiscovery`, `ProcessMonitoring`) only if the current code justifies
+it.
+
+## Docker
+
+Business logic should not directly know `subprocess.run(["docker", ...])`.
+If the Docker integration becomes important enough:
 
 ```text
-Domain
- ↓
-psutil
+application → container operations → Docker implementation
 ```
 
-ou :
+No useless class hierarchy for a few Docker commands.
+
+## tmux
+
+Same principle: progressively isolate session creation, windows, panes,
+attach, layout, session detection. Business logic should not needlessly
+depend on tmux commands.
+
+## Configuration
+
+Progressively separate: loading, validation, model, persistence. Do not mix
+`yaml.safe_load(...)` with business logic and UI — without creating four
+classes when one small well-organized module suffices.
+
+## Logs
+
+Separate when necessary: production, reading, storage, display. The UI must
+not become responsible for log storage or technical log management.
+
+## Browser
+
+Application logic may request "open a URL" without knowing Firefox, Brave,
+xdg-open, or subprocess — if that isolation can be done simply.
+
+## UI and performance
+
+Tkinter must stay responsive. Identify potentially blocking operations:
+subprocess, Docker, tmux, psutil, filesystem, network. Do not run them on
+the UI thread; use a thread or a queue only when the need is real. Do not
+introduce asyncio just because "it's more modern".
+
+---
+
+# DEDUPLICATION
+
+Look for: duplicated code, repeated validation, repeated conversions,
+repeated error handling, repeated process/Docker/tmux logic, repeated path
+construction.
+
+Do not factor out just because two pieces of code look alike: first verify
+they represent the same conceptual responsibility. Light duplication can be
+preferable to an overly complex abstraction.
+
+---
+
+# CHARACTERIZATION TESTS
+
+Before a risky refactoring, capture the current behavior:
 
 ```text
-Domain
- ↓
-Tkinter
+old behavior = new behavior
 ```
 
-ou :
+unless a functional change is explicitly requested.
 
-```text
-Application
- ↓
-Tkinter
-```
-
-ou :
-
-```text
-UI
- ↓
-subprocess
-```
-
-lorsque cette dépendance peut être supprimée proprement.
+The project has no test suite: `mypy .` and the tmux e2e scripts are the
+safety net. For critical paths — launch, stop, restart, processes, tmux,
+ports, configuration, important user behaviors — add ad-hoc
+characterization scripts before touching the code.
 
 ---
 
-# IMPORTANT : NE PAS SUR-ARCHITECTURER
+# OPTIMIZATION
 
-Ce projet est une application desktop.
+Never optimize because code "could be faster". Before any optimization:
 
-Ne pas transformer artificiellement le projet en énorme architecture Enterprise.
+1. identify the problem
+2. identify the expensive operation
+3. determine its frequency
+4. estimate or measure its impact
+5. propose an optimization
+6. explain the trade-off
 
-Ne pas créer systématiquement :
+Look for: useless system/Docker/network calls, repeated queries, useless
+scans, useless I/O, repeated computations, excessive algorithmic
+complexity.
 
-* interface pour chaque classe
-* repository pour chaque objet
-* factory pour chaque constructeur
-* service pour chaque fonction
-* DTO pour chaque objet
-* abstraction pour chaque appel
-
-Créer une abstraction uniquement lorsqu'elle apporte une vraie valeur :
-
-* découplage
-* testabilité
-* remplacement d'implémentation
-* réduction du couplage
-* meilleure compréhension du domaine
+Prefer `simple algorithm + fast enough` over `highly optimized + hard to
+maintain`, unless measurements prove the optimization is needed. Never
+heavily sacrifice readability for a marginal optimization.
 
 ---
 
-# REFACTORING PROGRESSIF
+# TECHNICAL DEBT
 
-Toujours travailler par petites étapes.
-
-Exemple :
-
-```text
-Étape 1
-↓
-Identifier une responsabilité mélangée
-
-Étape 2
-↓
-Ajouter/adapter les tests
-
-Étape 3
-↓
-Extraire la responsabilité
-
-Étape 4
-↓
-Connecter l'ancien code au nouveau composant
-
-Étape 5
-↓
-Vérifier le comportement
-
-Étape 6
-↓
-Supprimer l'ancien code devenu inutile
-```
-
-Ne jamais effectuer plusieurs gros changements
-indépendants simultanément.
+| Priority | Criteria |
+| -------- | -------- |
+| CRITICAL | data loss risk, corruption, orphan processes, major blocking, important incorrect behavior |
+| HIGH | tight coupling, potential bugs, heavily mixed responsibilities, hardly testable code |
+| MEDIUM | duplication, needless complexity, readability, improvable structure |
+| LOW | small improvements, style, cleanup |
 
 ---
 
-# FACTORISATION
+# COMPATIBILITY
 
-Rechercher :
-
-* code dupliqué
-* logique répétée
-* conversions répétées
-* validation répétée
-* gestion d'erreurs répétée
-* lancement de processus répété
-* logique Docker répétée
-* logique tmux répétée
-* construction de chemins répétée
-
-Mais attention :
-
-Deux morceaux de code similaires ne doivent pas automatiquement
-être fusionnés.
-
-Avant de factoriser, vérifier qu'ils représentent
-la même responsabilité métier ou technique.
+Preserve as much as possible: `apps.yaml`, `prefs.json`, CLI arguments,
+environment variables, data structures, user behaviors. Any incompatible
+change must be flagged.
 
 ---
 
-# OPTIMISATION DES PROCESSUS
+# ANALYSIS FORMAT
 
-Le projet utilise des processus locaux.
+When a project analysis is requested:
 
-Analyser particulièrement :
+## 1. Summary
 
-* `subprocess`
-* arbres de processus
-* polling
-* récupération des statuts
-* `psutil`
-* Docker
-* tmux
-* détection des ports
-* logs
+Briefly describe the current architecture.
 
-Rechercher :
-
-* appels système répétés inutilement
-* polling trop fréquent
-* processus lancés plusieurs fois
-* récupération répétée des mêmes informations
-* commandes shell inutilement coûteuses
-* appels Docker répétés
-* scans de ports excessifs
-
-Ne pas optimiser sans raison.
-
-Toujours expliquer :
-
-```text
-Problème
-→ Cause
-→ Impact
-→ Optimisation
-→ Risque
-```
-
----
-
-# OPTIMISATION DE L'UI
-
-Tkinter doit rester réactif.
-
-Identifier les opérations potentiellement bloquantes :
-
-* subprocess
-* psutil
-* docker
-* tmux
-* filesystem
-* parsing
-* réseau éventuel
-
-Ne pas exécuter une opération longue directement
-dans le thread UI si elle peut bloquer l'interface.
-
-Si nécessaire, proposer :
-
-* worker thread
-* queue
-* callbacks
-* polling contrôlé
-* architecture asynchrone uniquement si réellement justifiée
-
-Ne pas introduire asyncio simplement pour moderniser le code.
-
----
-
-# GESTION DES PROCESSUS
-
-Centraliser progressivement les responsabilités liées
-aux processus.
-
-Éviter que plusieurs parties du projet implémentent
-leur propre logique :
-
-```text
-start process
-stop process
-restart process
-detect process
-find process
-get status
-```
-
-Chercher à construire un composant cohérent
-responsable de la gestion des processus.
-
-Mais ne pas créer une classe gigantesque.
-
-Si nécessaire, séparer :
-
-```text
-Process lifecycle
-Process discovery
-Process monitoring
-Process tree inspection
-```
-
----
-
-# DOCKER
-
-Docker doit être considéré comme une infrastructure externe.
-
-La logique métier ne doit pas connaître :
-
-```python
-subprocess.run(["docker", ...])
-```
-
-ou directement les détails de `docker ps`.
-
-Créer progressivement une abstraction adaptée,
-uniquement si elle est nécessaire.
-
-Exemple :
-
-```python
-class ContainerManager:
-    ...
-```
-
-Puis une implémentation infrastructure :
-
-```python
-class DockerContainerManager(ContainerManager):
-    ...
-```
-
-Ne pas créer cette abstraction si le code est trop simple
-et qu'elle n'apporte aucune valeur immédiate.
-
----
-
-# TMUX
-
-Même principe pour tmux.
-
-Le domaine ne doit pas connaître :
-
-```text
-tmux
-```
-
-L'infrastructure gère :
-
-* création de session
-* création de fenêtre
-* panes
-* attach
-* layout
-* détection
-* adoption des sessions existantes
-
----
-
-# CONFIGURATION
-
-Séparer progressivement :
-
-```text
-Configuration loading
-Configuration validation
-Configuration model
-Configuration persistence
-```
-
-Ne pas mélanger :
-
-```python
-yaml.safe_load(...)
-```
-
-avec la logique métier et l'UI.
-
-Le modèle de configuration doit être manipulable
-sans dépendre de YAML.
-
----
-
-# LOGS
-
-Séparer :
-
-```text
-Log generation
-Log storage
-Log reading
-Log display
-```
-
-La UI ne doit pas être responsable de la logique
-de stockage des logs.
-
----
-
-# NAVIGATEUR
-
-La logique métier peut demander :
-
-```text
-Open URL
-```
-
-mais ne devrait pas connaître :
-
-```text
-Firefox
-Brave
-subprocess
-xdg-open
-```
-
-Ces détails appartiennent à l'infrastructure.
-
----
-
-# TESTABILITÉ
-
-Chaque refactoring doit chercher à rendre le code
-plus facilement testable.
-
-Priorité aux tests :
-
-1. domaine
-2. cas d'utilisation
-3. composants techniques critiques
-4. UI
-
-Éviter de tester uniquement l'interface.
-
-Exemple :
-
-Une règle de détermination du statut :
-
-```python
-if running and expected_ports:
-    ...
-```
-
-doit pouvoir être testée sans lancer réellement
-Docker, tmux ou Tkinter.
-
----
-
-# TESTS DE CARACTÉRISATION
-
-Avant un refactoring risqué, créer des tests qui capturent
-le comportement actuel.
-
-Ces tests servent à garantir :
-
-```text
-ancien comportement
-==
-nouveau comportement
-```
-
-sauf lorsque le changement fonctionnel est explicitement demandé.
-
----
-
-# DETTE TECHNIQUE
-
-Classer les problèmes :
-
-## CRITICAL
-
-Risque de perte de données,
-processus orphelins,
-blocage majeur,
-corruption,
-comportement incorrect.
-
-## HIGH
-
-Couplage important,
-bugs potentiels,
-responsabilité fortement mélangée,
-code difficilement testable.
-
-## MEDIUM
-
-Duplication,
-lisibilité,
-structure perfectible.
-
-## LOW
-
-Style,
-petites améliorations,
-simplification.
-
----
-
-# PERFORMANCE
-
-Ne jamais dire simplement :
-
-"Ce code peut être optimisé."
-
-Toujours préciser :
-
-```text
-Pourquoi ?
-Quelle opération coûteuse ?
-À quelle fréquence ?
-Quel impact probable ?
-Quelle solution ?
-Quel compromis ?
-```
-
-Ne pas sacrifier la lisibilité pour une optimisation
-non mesurée ou non justifiée.
-
----
-
-# API ET COMPATIBILITÉ
-
-Lorsque possible, préserver :
-
-* configuration `apps.yaml`
-* arguments CLI
-* variables d'environnement
-* fichiers de préférences
-* structure des données utilisateur
-* comportements utilisateur
-
-Une modification incompatible doit être explicitement signalée.
-
----
-
-# FORMAT D'ANALYSE
-
-Lorsqu'on te demande d'analyser le projet, produire :
-
-## 1. Architecture actuelle
-
-Décrire brièvement le fonctionnement actuel.
-
-## 2. Cartographie
+## 2. Map
 
 ```text
 UI
-↓
+ ↓
 ...
 ```
 
-## 3. Problèmes
+## 3. Issues
 
-| Priorité | Fichier | Problème | Impact | Solution |
-| -------- | ------- | -------- | ------ | -------- |
+| Priority | File | Issue | Impact | Solution |
+| -------- | ---- | ----- | ------ | -------- |
 
-## 4. Architecture cible
+## 4. Target architecture
 
-Présenter uniquement les couches réellement nécessaires.
+Present only the layers that are actually needed.
 
-## 5. Plan de migration
+## 5. Migration plan
 
 ```text
 Phase 1
@@ -765,108 +409,105 @@ Phase 3
 ...
 ```
 
-## 6. Première étape
+## 6. First step
 
-Identifier UNE première modification
-à faible risque et à forte valeur.
+Identify a single first change: low risk, high value.
 
 ---
 
-# FORMAT D'UNE MODIFICATION
+# CHANGE FORMAT
 
-Pour chaque modification proposée :
+For each proposed change:
 
-## Problème
+## Problem
 
-...
+## Why
 
-## Pourquoi
-
-...
-
-## Avant
+## Before
 
 ```python
-...
 ```
 
-## Après
+## After
 
 ```python
-...
 ```
 
-## Fichiers concernés
+## Affected files
 
 ```text
-...
 ```
 
-## Risque
+## Added complexity
+
+State whether the change adds a file, class, abstraction, dependency, or
+configuration — and justify each addition.
+
+## Risk
 
 LOW / MEDIUM / HIGH
 
 ## Tests
 
 ```text
-...
 ```
 
 ---
 
-# RÈGLE DE DÉCISION
+# BEFORE / AFTER COMPARISON
 
-Avant chaque refactoring, poser :
+For significant refactorings, compare affected files, mixed
+responsibilities, dependencies, complexity, and testability — before and
+after.
 
-1. Est-ce réellement un problème ?
-2. Quel est son impact ?
-3. Peut-on le corriger sans modifier le comportement ?
-4. Cette abstraction réduit-elle réellement le couplage ?
-5. Cette extraction améliore-t-elle la testabilité ?
-6. Le nombre de concepts introduits reste-t-il raisonnable ?
-7. Le changement est-il réversible ?
-8. Les tests permettent-ils de vérifier le résultat ?
-
-Si plusieurs réponses sont négatives,
-préférer ne pas effectuer le refactoring.
+The refactoring must either reduce complexity, or bring a clear benefit
+that justifies whatever complexity is added.
 
 ---
 
-# OBJECTIF FINAL
+# DECISION RULE
 
-L'objectif n'est PAS :
+Before each significant refactoring, answer:
 
-"avoir beaucoup de fichiers".
+1. Is this really a problem?
+2. What is its impact?
+3. Can it be fixed without changing behavior?
+4. Does this abstraction genuinely reduce coupling?
+5. Does this extraction improve testability?
+6. Does the code become simpler to understand?
+7. Is the change reversible?
+8. Does verification allow checking the result?
+9. How much extra complexity are we adding?
+10. Does the benefit justify that complexity?
 
-L'objectif est :
+If several answers are negative: **do not perform the refactoring.**
 
-```text
-Responsabilités claires
-        +
-Faible couplage
-        +
-Forte cohésion
-        +
-Tests faciles
-        +
-UI réactive
-        +
-Infrastructure isolée
-        +
-Code Python simple
-```
+---
 
-Le projet doit rester compréhensible par un développeur
-qui découvre le code.
+# FINAL RULE
 
-Toujours préférer :
+The goal is not a perfect architecture, but a project that gets
+progressively simpler, clearer, less coupled, and easier to evolve.
+
+Always prefer:
 
 ```text
-architecture simple
+simple
+pragmatic
+testable
+maintainable
 ```
 
-à :
+over:
 
 ```text
-architecture impressionnante mais inutilement complexe
+abstract
+over-architected
+verbose
+complex
 ```
+
+A good architecture lets a developer discovering the project quickly
+understand where each responsibility lives.
+
+**Never refactor for the sake of refactoring.**
