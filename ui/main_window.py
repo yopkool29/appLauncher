@@ -150,9 +150,8 @@ class MainWindow(
 		self._filter_var = tk.StringVar()
 		self._prefs_dialog: Optional[tk.Toplevel] = None
 		self._log_dialog: Optional[tk.Toplevel] = None
-		self._simple_var = tk.BooleanVar(
-			value=load_pref("simple_mode", "0") == "1"
-		)
+		# mode simple = session uniquement (jamais persistee)
+		self._simple_var = tk.BooleanVar()
 		self._sash_pos = 580  # position sash du paned hors mode simple
 		self._init_themes()
 		browser = load_pref("browser", "")
@@ -165,8 +164,6 @@ class MainWindow(
 		self._browser_var = tk.StringVar(value=browser)
 
 		self._build_ui()
-		if self._simple_var.get():
-			self._set_simple(True)
 		self._set_theme(self._theme)
 		self._reload_tree()
 		self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -194,8 +191,9 @@ class MainWindow(
 		self._open_dialog("_log_dialog", LauncherLogDialog)
 
 	def _set_simple(self, on: bool) -> None:
-		"""Mode simple : ne garde que le panneau des logs (tree,
-		toolbar et onglet Ports masques). Toggle : F11 / menu View."""
+		"""Mode simple : ne garde que le panneau des logs (tree et
+		onglet Ports masques, toolbar conservee — le bouton ◧ reste
+		le moyen visible de sortir). Toggle : F11 / menu View."""
 		self._simple_var.set(on)
 		if on:
 			if self.winfo_viewable():
@@ -203,17 +201,11 @@ class MainWindow(
 			self.notebook.select(self._logs_frame)
 			self.notebook.forget(self._ports_frame)
 			self._paned.forget(self._left)
-			self._toolbar.pack_forget()
 		else:
-			self._toolbar.pack(
-				side=tk.TOP, fill=tk.X, padx=6, pady=4,
-				before=self._paned,
-			)
 			self._paned.insert(0, self._left, weight=3)
 			self.notebook.insert(0, self._ports_frame, text="Ports")
 			pos = self._sash_pos
 			self.after_idle(lambda: self._paned.sashpos(0, pos))
-		save_pref("simple_mode", "1" if on else "0")
 
 	def _build_ui(self) -> None:
 		self._build_menu()
