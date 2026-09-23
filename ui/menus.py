@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.font as tkfont
 import webbrowser
 from functools import partial
+from tkinter import ttk
 
 from ui.actions import app_urls
-from tkinter import messagebox
+from ui.tray import ICON_PATH
 
 from core import tmux
 
@@ -72,12 +74,7 @@ class MenuMixin(tk.Tk):
 				)
 			m_view.insert_cascade(0, label="Theme", menu=m_theme)
 		_menu("Help", [
-			("About", "", lambda: messagebox.showinfo(
-				"About",
-				"App Launcher\nCentralized launcher for multi-process "
-				f"apps (shell, docker, tmux).\n\n{GITHUB_URL}",
-				parent=self,
-			)),
+			("About", "", self._show_about),
 			(
 				"GitHub page", "",
 				lambda: webbrowser.open(GITHUB_URL),
@@ -87,6 +84,48 @@ class MenuMixin(tk.Tk):
 		self.bind("<Control-q>", lambda _e: self._on_close())
 		self.bind("<Control-comma>", lambda _e: self._open_prefs())
 		self.bind("<F5>", lambda _e: self._refresh_all())
+
+	def _show_about(self) -> None:
+		d = tk.Toplevel(self)
+		d.title("About")
+		d.resizable(False, False)
+		d.transient(self)
+		if ICON_PATH.exists():
+			# subsample() fait du nearest-neighbor (pixelise) ->
+			# vrai resize lisse via Pillow (pas d'ImageTk : PNG en
+			# memoire passe a PhotoImage en base64)
+			import base64
+			import io
+			from PIL import Image  # type: ignore
+			buf = io.BytesIO()
+			Image.open(ICON_PATH).resize(
+				(64, 64), Image.LANCZOS
+			).save(buf, "PNG")
+			img = tk.PhotoImage(
+				data=base64.b64encode(buf.getvalue())
+			)
+			lbl = ttk.Label(d, image=img)
+			lbl.image = img  # garde la ref : Tk GC les images sinon
+			lbl.pack(pady=(14, 0))
+		ttk.Label(
+			d,
+			text="App Launcher\nCentralized launcher for multi-process "
+				 "apps (shell, docker, tmux).",
+			justify=tk.CENTER,
+		).pack(padx=20, pady=(14, 4))
+		link = tk.Label(d, text=GITHUB_URL, fg="#4a9eff", cursor="hand2")
+		f = tkfont.Font(link, link.cget("font"))
+		f.configure(underline=True)
+		link.configure(font=f)
+		link.pack(padx=20, pady=(0, 8))
+		link.bind("<Button-1>", lambda _e: webbrowser.open(GITHUB_URL))
+		ttk.Button(d, text="Close", command=d.destroy).pack(pady=(0, 12))
+		d.bind("<Escape>", lambda _e: d.destroy())
+		# centre sur la fenetre principale (taille reelle apres mapping)
+		d.update_idletasks()
+		x = self.winfo_rootx() + (self.winfo_width() - d.winfo_width()) // 2
+		y = self.winfo_rooty() + (self.winfo_height() - d.winfo_height()) // 2
+		d.geometry(f"+{x}+{y}")
 
 	@staticmethod
 	def _pad_menu(menu: tk.Menu, min_chars: int = 28) -> None:
