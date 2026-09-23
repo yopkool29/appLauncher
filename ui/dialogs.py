@@ -556,12 +556,14 @@ class PrefsDialog(_Modal[None]):
 		self._quit_action = tk.StringVar(
 			value=self._QUIT_LABELS.get(saved, self._QUIT_LABELS["ask"])
 		)
+		self._win_w = tk.StringVar(value=load_pref("win_min_width", ""))
+		self._win_h = tk.StringVar(value=load_pref("win_min_height", ""))
 
 		body = ttk.Frame(self, padding=12)
 		body.pack(fill=tk.BOTH, expand=True)
 		# resize : la colonne contenu + la ligne du tree s'etendent
 		body.columnconfigure(1, weight=1)
-		body.rowconfigure(6, weight=1)
+		body.rowconfigure(8, weight=1)
 		ttk.Label(body, text="Command wrapper:").grid(
 			row=0, column=0, sticky=tk.W, pady=3
 		)
@@ -608,8 +610,22 @@ class PrefsDialog(_Modal[None]):
 			width=26,
 		).grid(row=5, column=1, sticky=tk.W)
 
+		ttk.Label(body, text="Min window size:").grid(
+			row=6, column=0, sticky=tk.W
+		)
+		sz = ttk.Frame(body)
+		sz.grid(row=6, column=1, sticky=tk.W)
+		ttk.Entry(sz, textvariable=self._win_w, width=6).pack(
+			side=tk.LEFT
+		)
+		ttk.Label(sz, text="x").pack(side=tk.LEFT, padx=2)
+		ttk.Entry(sz, textvariable=self._win_h, width=6).pack(
+			side=tk.LEFT
+		)
+		ttk.Label(sz, text=" (blank = default)").pack(side=tk.LEFT)
+
 		ttk.Label(body, text="Ports in use (live):").grid(
-			row=6, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
+			row=7, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
 		)
 		self._ports = ttk.Treeview(
 			body,
@@ -628,12 +644,12 @@ class PrefsDialog(_Modal[None]):
 		sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._ports.yview)
 		self._ports.configure(yscrollcommand=sb.set)
 		self._ports.grid(
-			row=6, column=0, columnspan=2, sticky=tk.NSEW
+			row=8, column=0, columnspan=2, sticky=tk.NSEW
 		)
-		sb.grid(row=6, column=2, sticky=tk.NS)
+		sb.grid(row=8, column=2, sticky=tk.NS)
 		self._refresh_ports()
 
-		self._ok_cancel(body, 7)
+		self._ok_cancel(body, 9)
 		self.bind("<Return>", lambda _e: self._ok())
 
 	def _refresh_ports(self) -> None:
@@ -672,4 +688,16 @@ class PrefsDialog(_Modal[None]):
 			"quit_action",
 			_key_of(self._QUIT_LABELS, self._quit_action.get(), "ask"),
 		)
+		# taille min : paire valide ou vide (= defaut) ; appliquee
+		# immediatement sur la fenetre principale
+		w, h = self._win_w.get().strip(), self._win_h.get().strip()
+		valid = (
+			w.isdigit() and h.isdigit() and int(w) > 0 and int(h) > 0
+		)
+		save_pref("win_min_width", w if valid else "")
+		save_pref("win_min_height", h if valid else "")
+		if valid:
+			minsize = getattr(self._win, "minsize", None)
+			if minsize:
+				minsize(int(w), int(h))
 		self.destroy()

@@ -97,11 +97,19 @@ class MainWindow(
 		super().__init__(className="applauncher")
 		self.title("App Launcher")
 		self.geometry(DEFAULT_SIZE)
-		win = load_window_config(config_path)
+		# migration : l'ancienne section 'window:' du yaml -> prefs
+		# (les prefs font ensuite foi, la section est ignoree)
+		legacy = load_window_config(config_path)
+		for pref_key, yaml_key in (
+			("win_min_width", "min_width"),
+			("win_min_height", "min_height"),
+		):
+			if legacy.get(yaml_key) and not load_pref(pref_key, ""):
+				save_pref(pref_key, str(legacy[yaml_key]))
 		try:
 			self.minsize(
-				int(win.get("min_width", MIN_W)),
-				int(win.get("min_height", MIN_H)),
+				int(load_pref("win_min_width", "")),
+				int(load_pref("win_min_height", "")),
 			)
 		except (TypeError, ValueError):
 			self.minsize(MIN_W, MIN_H)

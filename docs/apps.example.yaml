@@ -5,10 +5,8 @@
 # Everything is optional except `name:` on apps and `name:`/`cmd:` on
 # processes. Edit this file directly or via the GUI (File > New App).
 
-# Main window constraints (optional, defaults 800x450)
-window:
-  min_width: 400
-  min_height: 400
+# Window min size is a GUI preference (Edit > Preferences), not a
+# yaml key — an old `window:` section is migrated to prefs once.
 
 apps:
 

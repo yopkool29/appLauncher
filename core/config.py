@@ -213,7 +213,8 @@ def load_config(path: Path) -> List[App]:
 
 
 def load_window_config(path: Path) -> dict:
-	"""Section 'window:' optionnelle : min_width, min_height."""
+	"""Section 'window:' (legacy) : min_width, min_height — lue au
+	demarrage uniquement pour migrer vers les prefs win_min_*."""
 	try:
 		data = yaml.safe_load(path.read_text()) or {}
 	except (OSError, yaml.YAMLError):
