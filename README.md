@@ -19,11 +19,16 @@ pip install -r requirements.txt   # PyYAML + psutil + sv_ttk + pystray + Pillow
 python3 applauncher.py
 ```
 
-Config file resolution: `--config <path>` > `$APPLAUNCHER_CONFIG` >
-`./apps.yaml` (dev checkout) > `~/.config/applauncher/apps.yaml`.
-`apps.yaml` is user data — it is gitignored, not pushed.
-`tkinter` comes with Python; `docker`/`tmux` integrations activate only
-if the binaries are found.
+The app catalog is loaded from the first existing location, in order:
+
+1. `--config <path>` (command-line flag)
+2. `$APPLAUNCHER_CONFIG` (environment variable)
+3. `./apps.yaml`, next to `applauncher.py` (dev checkout)
+4. `~/.config/applauncher/apps.yaml` (installed)
+
+`apps.yaml` is your personal catalog — it is gitignored and never
+pushed. `tkinter` ships with Python; `docker` and `tmux` support only
+activates when those binaries are installed.
 
 ## Catalog (`apps.yaml`)
 
