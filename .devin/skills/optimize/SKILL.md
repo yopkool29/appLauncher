@@ -1,6 +1,6 @@
 ---
 name: optimize
-description: Make code much smaller and simpler while preserving observable behavior. Use when asked to shrink, simplify, deduplicate, or optimize existing code.
+description: Drastically reduce code size — delete dead code, useless abstractions, duplication — while preserving exact behavior. Use when the goal is making code smaller, not restructuring it (structural improvements belong to the refactoring skill).
 ---
 
 Refactor this code to make it much smaller and simpler, while preserving exactly its observable behavior.

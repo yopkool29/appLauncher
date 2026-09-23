@@ -1,6 +1,6 @@
 ---
 name: refactoring
-description: Progressive, pragmatic refactoring for the appLauncher project (Python/Tkinter). Architecture analysis, coupling and duplication reduction, anti-overengineering. Use for any refactor, reorganization, or structural improvement request.
+description: Progressive, pragmatic refactoring for the appLauncher project (Python/Tkinter). Architecture analysis, coupling reduction, anti-overengineering. Use for refactor, reorganization, or structural improvement requests — may grow or shrink code (for pure size reduction, use the optimize skill).
 ---
 
 # AppLauncher — Python Refactoring Skill
