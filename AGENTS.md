@@ -13,9 +13,9 @@
 ## Layout
 
 - `applauncher.py` — entry point (`--config`, `--logs-dir`)
-- `core/` — config (yaml+paths), manager (lifecycle), tmux, ports,
-  logging_helpers
+- `core/` — config (yaml+paths+prefs), manager (lifecycle), tmux,
+  ports, browser, logging_helpers
 - `ui/` — Tk mixins: main_window, tree, menus, actions, dialogs,
-  editing, logs, polling, theme, tray
+  editing, logs, polling, theme, tray, lifecycle
 - User files: config `apps.yaml`, `~/.config/applauncher/prefs.json`,
   logs `--logs-dir` (default XDG state dir / repo in dev)

@@ -95,7 +95,9 @@ hand; saved back to the same file.
 
 ## Preferences
 
-`~/.config/applauncher/prefs.json` — browser choice and theme.
+`~/.config/applauncher/prefs.json` — GUI preferences (browser,
+theme, URL base, min window size, tray, quit action, command
+wrapper), editable via the Preferences dialog.
 
 ## Notes / limits
 
