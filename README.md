@@ -8,6 +8,10 @@ Desktop tool (Python + tkinter) to centralize start/stop of local apps:
 each app groups one or more processes (bash commands, `docker compose`,
 `docker run`...), with live status, detected ports and per-process logs.
 
+<p align="center">
+  <img src="docs/image.png" alt="App Launcher screenshot">
+</p>
+
 ## Run
 
 ```bash
