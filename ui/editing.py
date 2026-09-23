@@ -167,3 +167,7 @@ class EditMixin(tk.Tk):
 		sel = self._sel_procs()
 		if sel:
 			self._run_each(sel[0], sel[1], self.manager.restart)
+			return
+		t = self._selection()
+		if t and t[0] == "app":
+			self._start_app(t[1], True)  # restart toute l'app

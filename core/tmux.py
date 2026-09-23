@@ -187,6 +187,14 @@ def all_panes() -> List[dict]:
 	return panes
 
 
+def _invalidate_panes() -> None:
+	"""Apres kill/spawn/respawn : force la relecture de list-panes
+	(sans quoi is_tracked/_adopted_pane lisent un etat obsolete
+	pendant ~0.5s — ex. restart() qui verrait le pane mort)."""
+	global _panes_cache
+	_panes_cache = (0.0, [])
+
+
 def find_pane_anywhere(app_name: str, proc_name: str) -> Optional[dict]:
 	"""Pane taggee dans N'IMPORTE quelle session a nous — robuste
 	aux reordonnances : le pane reste ou il a ete cree."""
@@ -234,6 +242,7 @@ def kill_pane(pane_id: str) -> None:
 		_run("kill-pane", "-t", pane_id)
 	except (OSError, subprocess.TimeoutExpired):
 		pass
+	_invalidate_panes()
 
 
 def _win_opts(t: str, app_name: str) -> List[str]:
@@ -351,6 +360,7 @@ def spawn(
 	)
 	if res.returncode != 0:
 		raise RuntimeError(res.stderr.strip() or "tmux failed")
+	_invalidate_panes()  # le nouveau pane doit etre visible de suite
 	pane_id = pane_id or res.stdout.strip()
 	pane_pid = int(
 		_out("display-message", "-p", "-t", pane_id, "#{pane_pid}") or 0

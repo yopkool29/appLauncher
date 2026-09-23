@@ -49,7 +49,7 @@ class MenuMixin(tk.Tk):
 		])
 		_menu("Process", [
 			("Start / Stop", "S", self._toggle_proc),
-			("Restart", "", self._restart_selection),
+			("Restart", "R", self._restart_selection),
 			None,
 			("Launch in Browser", "", self._launch_proc_browser),
 			None,
@@ -177,7 +177,7 @@ class MenuMixin(tk.Tk):
 			item(f"Stop all ({n})",
 			     partial(self._confirm_stop_procs, app, procs), "s")
 			item(f"Restart all ({n})",
-			     partial(self._run_each, app, procs, self.manager.restart))
+			     partial(self._run_each, app, procs, self.manager.restart), "r")
 			if (
 				tmux.TMUX_OK
 				and any(p.tmux for p in procs)
@@ -196,7 +196,7 @@ class MenuMixin(tk.Tk):
 			item("Start all", partial(self._start_app, app), "s")
 			item("Stop all",
 			     partial(self._run_action, self.manager.stop_app, app), "s")
-			item("Restart all", partial(self._start_app, app, True))
+			item("Restart all", partial(self._start_app, app, True), "r")
 			menu.add_separator()
 			if app_urls(app):
 				item("Open URLs", partial(self._open_app_urls, app), "u")
@@ -209,7 +209,7 @@ class MenuMixin(tk.Tk):
 			item("Start", partial(self._start_procs, app, [proc]), "s")
 			item("Stop", partial(self._confirm_stop_procs, app, [proc]), "s")
 			item("Restart",
-			     partial(self._run_each, app, [proc], self.manager.restart))
+			     partial(self._run_each, app, [proc], self.manager.restart), "r")
 			if proc.browser_mode != "none":
 				if len(proc.ports) == 1:
 					item(f"Open :{proc.ports[0]}",

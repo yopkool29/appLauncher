@@ -266,8 +266,11 @@ class ProcessManager:
 					rt.tmux, tmux.window_key(app, proc), app.tmux_layout
 				)
 		# independent du bloc tmux : un proc declare tmux lance en
-		# fallback Popen (tmux absent) doit quand meme etre tue
-		if rt is not None and rt.popen is not None and rt.popen.poll() is None:
+		# fallback Popen (tmux absent) doit quand meme etre tue. On
+		# kill meme si popen est mort : des enfants du groupe peuvent
+		# survivre (script qui lance en arriere-plan puis se termine)
+		# et garder les ports declares.
+		if rt is not None and rt.popen is not None:
 			self._kill_tree(rt.popen.pid)
 			msg = msg or f"{proc.name} stopped"
 
@@ -294,7 +297,33 @@ class ProcessManager:
 
 	def restart(self, app: App, proc: Process) -> Tuple[bool, str]:
 		self.stop(app, proc)
+		if self._wait_ports_free(proc, 1.0):
+			# port encore pris apres la mort du proc : squatteur
+			# externe (proc lance hors launcher) -> on le libere
+			self.stop_external(app, proc)
+			self._wait_ports_free(proc)
 		return self.start(app, proc)
+
+	@staticmethod
+	def _wait_ports_free(proc: Process, timeout: float = 4.0) -> bool:
+		"""Attend que les ports declares soient liberes ; True si
+		encore occupes a l'issue du timeout — sinon le nouveau proc
+		meurt au bind (proc externe SIGTERM sans wait, enfant
+		detache, mort lente)."""
+		if not proc.ports:
+			return False
+		deadline = time.time() + timeout
+		while True:
+			listening = {
+				port
+				for port, proto in portscan._parse_socket_ports().values()
+				if proto == "tcp"
+			}
+			if not any(p in listening for p in proc.ports):
+				return False
+			if time.time() >= deadline:
+				return True
+			time.sleep(0.1)
 
 	def stop_external(self, app: App, proc: Process) -> Tuple[bool, str]:
 		"""Tue les processus externes ecoutant sur les ports declares."""
@@ -398,11 +427,22 @@ class ProcessManager:
 	def _kill_tree(pid: int, timeout: float = 4.0) -> None:
 		try:
 			pgid = os.getpgid(pid)
+		except (ProcessLookupError, PermissionError):
+			# leader mort : start_new_session => pgid == pid, des
+			# membres du groupe peuvent etre encore vivants
+			pgid = pid
+		try:
 			os.killpg(pgid, signal.SIGTERM)
 		except (ProcessLookupError, PermissionError):
 			return
 		deadline = time.time() + timeout
 		while time.time() < deadline:
+			try:
+				# reape l'enfant direct : son zombie compterait comme
+				# membre du groupe -> wait toujours au timeout sinon
+				os.waitpid(pid, os.WNOHANG)
+			except (ChildProcessError, OSError):
+				pass
 			try:
 				os.killpg(pgid, 0)
 			except (ProcessLookupError, PermissionError):

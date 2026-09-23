@@ -215,6 +215,8 @@ class ActionsMixin(tk.Tk):
 			self._toggle_proc()
 		elif ch == "u":
 			self._open_selection()
+		elif ch == "r":
+			self._restart_selection()
 
 	def _open_selection(self) -> None:
 		"""Raccourci 'u' : 'Open URLs' pour une app, premier port du
