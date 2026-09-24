@@ -268,6 +268,8 @@ class MenuMixin(tk.Tk):
 				     partial(self._tmux_attach, app, proc))
 			menu.add_separator()
 			item("Edit process", partial(self._edit_proc, app, proc), "e")
+			item("Duplicate process",
+			     partial(self._dup_proc, app, proc))
 			item("Delete process", partial(self._del_procs, app, [proc]), "Del")
 		self._pad_menu(menu)
 		# poste en differe : tk_popup prend un grab ; pendant le handler

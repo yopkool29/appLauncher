@@ -2,10 +2,12 @@
 # mypy: disable-error-code="attr-defined,has-type"
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 from typing import Optional
 
@@ -120,10 +122,28 @@ class LogsMixin(tk.Tk):
 		path = self.manager.log_path(app, proc)
 		res = tail_file(path, LOG_TAIL_BYTES)
 		if res is None:
-			text = "(no log yet)"
+			text = self._external_log(proc) or "(no log yet)"
 		else:
 			text, tab["size"] = res
 		self._set_log_text(tab, text)
+
+	def _external_log(self, proc: Process) -> Optional[str]:
+		"""Proc externe (pas lance par nous) : son stdout n'est pas
+		redirige vers nos logs — mais si fd 1/2 pointe vers un fichier
+		regulier on peut le tailer (script avec redirection, etc.)."""
+		if not proc.ports:
+			return None
+		for pid in portscan.pids_on_ports(proc.ports):
+			for fd in ("1", "2"):
+				try:
+					tgt = os.readlink(f"/proc/{pid}/fd/{fd}")
+				except OSError:
+					continue
+				if tgt.startswith("/") and Path(tgt).is_file():
+					res = tail_file(Path(tgt), LOG_TAIL_BYTES)
+					if res is not None:
+						return f"[external fd{fd} -> {tgt}]\n{res[0]}"
+		return None
 
 	def _reload_logs(self) -> None:
 		tab = self._cur_log_tab()
@@ -145,7 +165,12 @@ class LogsMixin(tk.Tk):
 				self._load_tab(tab)
 			return
 		path = self.manager.log_path(self._logs_app, proc)
-		if path.exists() and path.stat().st_size != tab["size"]:
+		if not path.exists():
+			# externe : pas de fichier a nous -> reload throttle
+			if time.time() - tab.get("ts", 0.0) >= 4.0:
+				self._load_tab(tab)
+			return
+		if path.stat().st_size != tab["size"]:
 			self._load_tab(tab)
 
 	def _set_log_text(self, tab: dict, text: str) -> None:

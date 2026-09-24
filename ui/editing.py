@@ -2,6 +2,7 @@
 # mypy: disable-error-code="attr-defined,has-type"
 from __future__ import annotations
 
+import dataclasses
 import logging
 import tkinter as tk
 
@@ -37,6 +38,7 @@ class EditMixin(tk.Tk):
 		if dialog.result:
 			app.processes.append(dialog.result)
 			self._save()
+			self._refresh_log_tabs(app)
 
 	def _edit_app(self, app: App) -> None:
 		dialog = AppDialog(self, app)
@@ -72,6 +74,23 @@ class EditMixin(tk.Tk):
 			idx = app.processes.index(proc)
 			app.processes[idx] = dialog.result
 			self._save()
+
+	def _dup_proc(self, app: App, proc: Process) -> None:
+		"""Duplique le proc dans la meme app — tout identique sauf
+		le nom ('x-copy1', 'x-copy2'...). La copie garde les memes
+		ports : a ajuster via Edit avant de la lancer en parallele
+		de l'original."""
+		names = {p.name for p in app.processes}
+		name, i = "", 0
+		while not name or name in names:
+			i += 1
+			name = f"{proc.name}-copy{i}"
+		dup = dataclasses.replace(
+			proc, name=name, ports=list(proc.ports)
+		)
+		app.processes.insert(app.processes.index(proc) + 1, dup)
+		self._save()
+		self._refresh_log_tabs(app)
 
 	def _edit_selection(self) -> None:
 		target = self._selection()
@@ -114,6 +133,7 @@ class EditMixin(tk.Tk):
 		for proc in procs:
 			app.processes.remove(proc)
 		self._save()
+		self._refresh_log_tabs(app)
 
 	def _move_selection(self, delta: int) -> None:
 		"""Deplace l'item selectionne (app ou proc) de +/-1.
@@ -150,13 +170,21 @@ class EditMixin(tk.Tk):
 		self._save()
 		self.tree.see(iid)
 		# les sous-onglets de logs suivent le nouvel ordre des procs
-		if t[0] != "app" and self._logs_app is app:
-			cur = self._cur_log_tab()
-			self._build_log_tabs(app)
-			if cur is not None:
-				tab = self._log_tabs.get(cur["proc"].name)
-				if tab is not None:
-					self._logs_nb.select(tab["frame"])
+		if t[0] != "app":
+			self._refresh_log_tabs(app)
+
+	def _refresh_log_tabs(self, app: App) -> None:
+		"""Reconstruit les sous-onglets de logs si l'app est celle
+		affichee (move/duplicate/add/delete de proc), en gardant
+		l'onglet courant selectionne."""
+		if self._logs_app is not app:
+			return
+		cur = self._cur_log_tab()
+		self._build_log_tabs(app)
+		if cur is not None:
+			tab = self._log_tabs.get(cur["proc"].name)
+			if tab is not None:
+				self._logs_nb.select(tab["frame"])
 
 	def _save(self) -> None:
 		try:
