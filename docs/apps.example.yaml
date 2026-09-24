@@ -88,6 +88,7 @@ apps:
       - name: "compose up"
         cmd: "docker compose up -d"
         stop: "docker compose down"  # custom stop command
+                                     # ({port} = first declared port)
         workdir: "~/projects/stack"
         ports: [8080, 5432]
         docker: true

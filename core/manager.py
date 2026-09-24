@@ -257,9 +257,16 @@ class ProcessManager:
 
 		if proc.stop:
 			try:
-				log.info(f"{proc.name}: stop cmd: {proc.stop}")
+				# {port} = premier port declare (ou launch_port de
+				# l'app) : stop: "fuser -k {port}/tcp"
+				port = proc.ports[0] if proc.ports else app.launch_port
+				stop_cmd = (
+					proc.stop.replace("{port}", str(port))
+					if port else proc.stop
+				)
+				log.info(f"{proc.name}: stop cmd: {stop_cmd}")
 				res = subprocess.run(
-					proc.stop,
+					stop_cmd,
 					shell=True,
 					cwd=proc.workdir or None,
 					stdout=subprocess.DEVNULL,

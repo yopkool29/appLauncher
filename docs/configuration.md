@@ -50,7 +50,7 @@ locked while any process runs, because the order defines the groups.
 | `name` | — | Display name (required). |
 | `cmd` | — | Shell command (required). Run through `sh -c`. Prefix env vars with `env` (`env FOO=1 cmd`), not bare `FOO=1` — the global command wrapper ends with `exec {cmd}`. |
 | `workdir` | `""` | Working directory (`~` and `$VARS` expanded). |
-| `stop` | `""` | Custom stop command; default kills the process group. |
+| `stop` | `""` | Custom stop command; default kills the process group. `{port}` expands to the first declared port (or app `launch_port`). |
 | `ports` | `[]` | Declared ports: Ports tab, status, browser open, wait-on-launch. |
 | `docker` | `false` | Process spawns containers (status/logs via `docker ps`). |
 | `tmux` | `false` | Run inside tmux instead of a detached Popen. |
