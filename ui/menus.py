@@ -2,6 +2,8 @@
 # mypy: disable-error-code="attr-defined,has-type"
 from __future__ import annotations
 
+import shlex
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 import webbrowser
@@ -9,6 +11,7 @@ from functools import partial
 from tkinter import ttk
 
 from core.browser import app_urls, port_url
+from ui.icons import emoji_image
 from ui.tray import ICON_PATH
 
 from core import tmux
@@ -92,11 +95,11 @@ class MenuMixin(tk.Tk):
 				)
 			m_view.insert_cascade(0, label="Theme", menu=m_theme)
 		_menu("Help", [
-			("About", "", self._show_about),
 			(
 				"GitHub page", "",
 				lambda: webbrowser.open(GITHUB_URL),
 			),
+			("About", "", self._show_about),
 		])
 
 		self.bind("<Control-q>", lambda _e: self._on_close())
@@ -141,6 +144,30 @@ class MenuMixin(tk.Tk):
 		link.configure(font=f)
 		link.pack(padx=20, pady=(0, 8))
 		link.bind("<Button-1>", lambda _e: webbrowser.open(GITHUB_URL))
+		# ligne de commande du lancement courant : entry readonly
+		# (selectionnable) + bouton copie
+		ttk.Separator(d).pack(fill=tk.X, padx=20, pady=(0, 8))
+		row = ttk.Frame(d)
+		row.pack(padx=20, pady=(0, 8), fill=tk.X)
+		ttk.Label(row, text="cmd:").pack(side=tk.LEFT)
+		cmdline = shlex.join(sys.argv)
+		ent = ttk.Entry(row)
+		ent.insert(0, cmdline)
+		ent.config(state="readonly")
+		ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+		def _copy() -> None:
+			d.clipboard_clear()
+			d.clipboard_append(cmdline)
+
+		cp_img = emoji_image("📋")
+		cp = ttk.Button(
+			row, text="" if cp_img else "Copy", command=_copy
+		)
+		if cp_img is not None:
+			cp.configure(image=cp_img, width=0)
+			cp.image = cp_img
+		cp.pack(side=tk.LEFT, padx=(6, 0))
 		ttk.Button(d, text="Close", command=d.destroy).pack(pady=(0, 12))
 		d.bind("<Escape>", lambda _e: d.destroy())
 		# centre sur la fenetre principale (taille reelle apres mapping)
