@@ -209,11 +209,15 @@ class ProcessManager:
 		cmd = proc.cmd
 		wrapper = load_pref("cmd_wrapper", "").strip()
 		if wrapper:
-			cmd = (
-				wrapper.replace("{cmd}", proc.cmd)
-				if "{cmd}" in wrapper
-				else f"{wrapper} {proc.cmd}"
-			)
+			if "{cmd}" in wrapper:
+				# la cmd brute transite par AL_CMD : un wrapper avec
+				# "exec {cmd}" ne mange pas les commandes composees
+				# (exec ne s'applique qu'a bash, pas a "a; b")
+				cmd = f"AL_CMD={shlex.quote(proc.cmd)} " + wrapper.replace(
+					"{cmd}", 'bash -c "$AL_CMD"'
+				)
+			else:
+				cmd = f"{wrapper} {proc.cmd}"
 		if proc.workdir:
 			# cd dans la commande : un workdir invalide apparait
 			# dans le log/pane au lieu d'une erreur de lancement
