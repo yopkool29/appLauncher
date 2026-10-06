@@ -121,15 +121,19 @@ class TreeMixin(tk.Tk):
 		return img
 
 	def _app_state(self, app: App) -> Tuple[str, str]:
-		states = [
-			self._snapshot.get((app.name, p.name), ProcStatus()).state
+		snap = [
+			self._snapshot.get((app.name, p.name), ProcStatus())
 			for p in app.processes
 		]
-		if not states:
+		if not snap:
 			return ("○ empty", "gray")
+		states = [s.state for s in snap]
 		running = states.count(STATUS_RUNNING)
 		external = states.count(STATUS_EXTERNAL)
 		if running == len(states):
+			# tout tourne mais un port declare n'ecoute pas -> degrade
+			if any(s.ports_dead for s in snap):
+				return ("● running ⚠", "orange")
 			return ("● running", "green")
 		if external == len(states):
 			return ("◉ external", "orange")
@@ -177,6 +181,9 @@ class TreeMixin(tk.Tk):
 					(app.name, proc.name), ProcStatus()
 				)
 				plabel, pcolor = STATE_META.get(st.state, ("?", "gray"))
+				if st.ports_dead:
+					plabel += " ⚠"
+					pcolor = "orange"
 				pids = ", ".join(map(str, st.pids[:3]))
 				if len(st.pids) > 3:
 					pids += ",…"

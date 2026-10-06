@@ -247,6 +247,12 @@ class MenuMixin(tk.Tk):
 			item("Stop", partial(self._confirm_stop_procs, app, [proc]), "s")
 			item("Restart",
 			     partial(self._run_each, app, [proc], self.manager.restart), "r")
+			if proc.is_docker:
+				# rm -f + relance : repare les bindings de ports
+				# perdus cote docker (iptables flush, etc.)
+				item("Reset (docker)",
+				     partial(self._run_each, app, [proc],
+				             self.manager.reset))
 			if proc.browser_mode != "none":
 				if len(proc.ports) == 1:
 					item(f"Open :{proc.ports[0]}",

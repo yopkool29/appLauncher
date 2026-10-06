@@ -36,6 +36,9 @@ class ProcStatus:
 	pids: List[int] = field(default_factory=list)
 	ports: List[int] = field(default_factory=list)
 	uptime: float = 0.0
+	# running mais aucun port declare n'ecoute (ex. container docker
+	# dont le publish a ete perdu apres un flush iptables)
+	ports_dead: bool = False
 
 
 @dataclass
@@ -357,6 +360,31 @@ class ProcessManager:
 			self._wait_ports_free(proc)
 		return self.start(app, proc)
 
+	def reset(self, app: App, proc: Process) -> Tuple[bool, str]:
+		"""Reset : supprime les containers docker du proc avant de
+		relancer — repare les bindings de ports perdus (flush
+		iptables, restart partiel du daemon). Non-docker = restart."""
+		if proc.is_docker:
+			names = [
+				c["name"]
+				for c in portscan.containers_for_proc(
+					proc.name, proc.workdir or "", proc.cmd
+				)
+			]
+			if names:
+				log.info("%s: docker rm -f %s", proc.name, names)
+				try:
+					subprocess.run(
+						["docker", "rm", "-f", *names],
+						stdout=subprocess.DEVNULL,
+						stderr=subprocess.DEVNULL,
+						timeout=30,
+					)
+				except (OSError, subprocess.TimeoutExpired) as exc:
+					log.warning("%s: docker rm failed (%s)", proc.name, exc)
+		self.stop(app, proc)
+		return self.start(app, proc)
+
 	@staticmethod
 	def _wait_ports_free(proc: Process, timeout: float = 4.0) -> bool:
 		"""Attend que les ports declares soient liberes ; True si
@@ -475,6 +503,13 @@ class ProcessManager:
 			pids=tree,
 			ports=sorted(set(detected)),
 			uptime=uptime,
+			ports_dead=(
+				state == STATUS_RUNNING
+				and bool(proc.ports)
+				and not any(
+					portscan.port_listening(p) for p in proc.ports
+				)
+			),
 		)
 
 	@staticmethod
