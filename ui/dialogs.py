@@ -620,12 +620,15 @@ class PrefsDialog(_Modal[None]):
 		)
 		self._win_w = tk.StringVar(value=load_pref("win_min_width", ""))
 		self._win_h = tk.StringVar(value=load_pref("win_min_height", ""))
+		self._log_tail = tk.StringVar(
+			value=load_pref("docker_log_tail", "")
+		)
 
 		body = ttk.Frame(self, padding=12)
 		body.pack(fill=tk.BOTH, expand=True)
 		# resize : la colonne contenu + la ligne du tree s'etendent
 		body.columnconfigure(1, weight=1)
-		body.rowconfigure(8, weight=1)
+		body.rowconfigure(9, weight=1)
 		ttk.Label(body, text="Command wrapper:").grid(
 			row=0, column=0, sticky=tk.W, pady=3
 		)
@@ -688,8 +691,18 @@ class PrefsDialog(_Modal[None]):
 			side=tk.LEFT
 		)
 
+		ttk.Label(body, text="Docker log lines:").grid(
+			row=7, column=0, sticky=tk.W
+		)
+		lt = ttk.Frame(body)
+		lt.grid(row=7, column=1, sticky=tk.W)
+		ttk.Entry(lt, textvariable=self._log_tail, width=6).pack(
+			side=tk.LEFT
+		)
+		ttk.Label(lt, text=" (blank = 150)").pack(side=tk.LEFT)
+
 		ttk.Label(body, text="Ports in use (live):").grid(
-			row=7, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
+			row=8, column=0, columnspan=2, sticky=tk.W, pady=(8, 2)
 		)
 		self._ports = ttk.Treeview(
 			body,
@@ -708,12 +721,12 @@ class PrefsDialog(_Modal[None]):
 		sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._ports.yview)
 		self._ports.configure(yscrollcommand=sb.set)
 		self._ports.grid(
-			row=8, column=0, columnspan=2, sticky=tk.NSEW
+			row=9, column=0, columnspan=2, sticky=tk.NSEW
 		)
-		sb.grid(row=8, column=2, sticky=tk.NS)
+		sb.grid(row=9, column=2, sticky=tk.NS)
 		self._refresh_ports()
 
-		self._ok_cancel(body, 9)
+		self._ok_cancel(body, 10)
 		self.bind("<Return>", lambda _e: self._ok())
 
 	def _refresh_ports(self) -> None:
@@ -767,4 +780,10 @@ class PrefsDialog(_Modal[None]):
 			minsize = getattr(self._win, "minsize", None)
 			if minsize:
 				minsize(int(w), int(h))
+		# tail docker logs : entier > 0 ou vide (= defaut 150)
+		tail = self._log_tail.get().strip()
+		save_pref(
+			"docker_log_tail",
+			tail if tail.isdigit() and int(tail) > 0 else "",
+		)
 		self.destroy()

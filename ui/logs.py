@@ -12,7 +12,7 @@ from tkinter import ttk
 from typing import Optional
 
 from core import ports as portscan
-from core.config import App, Process
+from core.config import App, Process, load_pref
 from core.logging_helpers import tail_file
 from ui.ansi_text import write_ansi
 
@@ -94,6 +94,10 @@ class LogsMixin(tk.Tk):
 		tab["ts"] = time.time()
 		if proc.is_docker:
 			name = proc.name
+			# pref 'docker_log_tail' : lignes demandees a docker logs
+			tail = load_pref("docker_log_tail", "150")
+			if not tail.isdigit() or int(tail) <= 0:
+				tail = "150"
 
 			def fetch() -> None:
 				names = [
@@ -106,7 +110,7 @@ class LogsMixin(tk.Tk):
 				for cname in names:
 					try:
 						out = subprocess.run(
-							["docker", "logs", "--tail", "150", cname],
+							["docker", "logs", "--tail", tail, cname],
 							capture_output=True, text=True, timeout=15,
 						)
 						parts.append(
