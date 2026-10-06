@@ -2,8 +2,10 @@
 # mypy: disable-error-code="attr-defined,has-type"
 from __future__ import annotations
 
+import logging
 import shlex
 import sys
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 import webbrowser
@@ -15,6 +17,8 @@ from ui.icons import emoji_image
 from ui.tray import ICON_PATH
 
 from core import tmux
+
+log = logging.getLogger(__name__)
 
 GITHUB_URL = "https://github.com/yopkool29/applauncher"
 
@@ -215,6 +219,12 @@ class MenuMixin(tk.Tk):
 			     partial(self._confirm_stop_procs, app, procs), "s")
 			item(f"Restart all ({n})",
 			     partial(self._run_each, app, procs, self.manager.restart), "r")
+			# reset = restart pour les non-docker, rm -f + relance
+			# pour les docker -> visible seulement si utile
+			if any(p.is_docker for p in procs):
+				item(f"Reset all ({n})",
+				     partial(self._run_each, app, procs,
+				             self.manager.reset))
 			if (
 				tmux.TMUX_OK
 				and any(p.tmux for p in procs)
@@ -278,15 +288,27 @@ class MenuMixin(tk.Tk):
 			     partial(self._dup_proc, app, proc))
 			item("Delete process", partial(self._del_procs, app, [proc]), "Del")
 		self._pad_menu(menu)
-		# poste en differe : tk_popup prend un grab ; pendant le handler
-		# Button-3 le bouton est encore enfonce -> le release peut fermer
-		# le menu ou le grab echouer si un dialogue modal le detient.
+		# poste en differe sur ButtonRelease : le bouton est deja
+		# relache -> son release ne peut pas tuer le menu juste poste ;
+		# et tk_popup prend un grab, sans conflit avec un dialogue
+		# modal qui le detiendrait.
 		x, y = event.x_root, event.y_root
+		posted_at = [0.0]
 
 		def _post() -> None:
 			try:
 				menu.tk_popup(x, y)
+				posted_at[0] = time.monotonic()
 			except tk.TclError:
 				pass
 
+		# diagnostic : ferme-t-il tout seul ? -> delai dans le log
+		def _unmap(_e) -> None:
+			if posted_at[0]:
+				log.debug(
+					"ctx menu unposted after %.0fms",
+					(time.monotonic() - posted_at[0]) * 1000,
+				)
+
+		menu.bind("<Unmap>", _unmap)
 		self.after_idle(_post)

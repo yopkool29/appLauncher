@@ -444,7 +444,9 @@ class MainWindow(
 
 		self.tree.bind("<Delete>", lambda _e: self._delete_selection())
 		self.tree.bind("<Button-1>", self._on_cell_click)
-		self.tree.bind("<Button-3>", self._on_right_click)
+		# release et non press : le post differe du menu ne peut pas
+		# etre tue par le release du bouton (course grab/release)
+		self.tree.bind("<ButtonRelease-3>", self._on_right_click)
 		self.tree.bind("<<TreeviewSelect>>", self._on_select)
 		self.tree.bind(
 			"<<TreeviewOpen>>", lambda _e: self._save_expand_state()
