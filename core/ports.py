@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import psutil
+import yaml
 
 
 @dataclass
@@ -334,16 +335,152 @@ def _same_dir(a: str, b: str) -> bool:
 		return a == b
 
 
-def compose_services(workdir: str, cmd: str) -> Set[str]:
-	"""Noms de services declares dans les compose files de la commande
-	(fait foi meme sans conteneur running)."""
-	key = ("svc", os.path.realpath(workdir or "."), cmd)
-	return _cached(
-		key, _SVC_TTL, lambda old: _scan_services(workdir, cmd, old)
+_COMPOSE_NAMES = (
+	"compose.yaml", "compose.yml",
+	"docker-compose.yaml", "docker-compose.yml",
+)
+_COMPOSE_OVERRIDES = (
+	"compose.override.yaml", "compose.override.yml",
+	"docker-compose.override.yaml", "docker-compose.override.yml",
+)
+
+
+def _compose_files(workdir: str, cmd: str) -> List[str]:
+	"""Fichiers compose de la commande : -f/--file explicites (ils
+	desactivent la detection auto), sinon COMPOSE_FILE, sinon le
+	fichier par defaut du workdir + les overrides presents —
+	comme `docker compose` (un seul fichier de base)."""
+	base = workdir or "."
+	try:
+		args = shlex.split(cmd)
+	except ValueError:
+		args = []
+	files: List[str] = []
+	i = 0
+	while i < len(args):
+		a = args[i]
+		if a in ("-f", "--file") and i + 1 < len(args):
+			files.append(args[i + 1])
+			i += 1
+		elif a.startswith(("--file=", "-f=")):
+			files.append(a.split("=", 1)[1])
+		i += 1
+	if not files:
+		env = os.getenv("COMPOSE_FILE", "")
+		files = [f for f in env.split(os.pathsep) if f]
+	if files:
+		return [
+			os.path.normpath(
+				os.path.expandvars(os.path.expanduser(
+					f if os.path.isabs(f) else os.path.join(base, f)
+				))
+			)
+			for f in files
+		]
+	found = next(
+		(
+			n for n in _COMPOSE_NAMES
+			if os.path.isfile(os.path.join(base, n))
+		),
+		None,
 	)
+	if found is None:
+		return []
+	return [os.path.join(base, found)] + [
+		os.path.join(base, n)
+		for n in _COMPOSE_OVERRIDES
+		if os.path.isfile(os.path.join(base, n))
+	]
 
 
-def _scan_services(workdir: str, cmd: str, old: Optional[Set[str]]) -> Set[str]:
+def _include_paths(inc: Any) -> Any:
+	"""'include:' accepte str, liste de str, ou dicts avec 'path'
+	(lui-meme str ou liste)."""
+	if isinstance(inc, str):
+		yield inc
+	elif isinstance(inc, dict):
+		yield from _include_paths(inc.get("path"))
+	elif isinstance(inc, list):
+		for item in inc:
+			yield from _include_paths(item)
+
+
+def _services_from_file(path: str, seen: Set[str]) -> Set[str]:
+	"""Cles de 'services:' + recursion sur 'include:' (chemins
+	relatifs au fichier qui les declare ; un dossier vise son
+	fichier compose par defaut)."""
+	if path in seen or len(seen) > 16:
+		return set()
+	seen.add(path)
+	data = yaml.safe_load(Path(path).read_text())
+	if not isinstance(data, dict):
+		return set()
+	svc = data.get("services")
+	services = {str(k) for k in svc} if isinstance(svc, dict) else set()
+	directory = os.path.dirname(path)
+	for inc in _include_paths(data.get("include")):
+		inc = os.path.expandvars(os.path.expanduser(inc))
+		p = inc if os.path.isabs(inc) else os.path.join(directory, inc)
+		targets = (
+			[os.path.join(p, n) for n in _COMPOSE_NAMES]
+			if os.path.isdir(p)
+			else [p]
+		)
+		for t in targets:
+			if os.path.isfile(t):
+				try:
+					services |= _services_from_file(
+						os.path.normpath(t), seen
+					)
+				except (OSError, yaml.YAMLError):
+					pass
+				break
+	return services
+
+
+_svc_cache: Dict[Any, Tuple[Tuple, Set[str]]] = {}
+
+
+def compose_services(workdir: str, cmd: str) -> Set[str]:
+	"""Noms de services declares dans les compose files de la
+	commande (fait foi meme sans conteneur running). Parsing YAML
+	direct (~1ms vs ~100ms pour `docker compose config`), revalide
+	a chaque appel par fingerprint (fichiers + mtimes) : reparse
+	uniquement si un fichier a change. Repli CLI quand aucun
+	fichier n'est resolu (contexte distant, projet sans compose
+	file local)."""
+	key = (os.path.realpath(workdir or "."), cmd)
+	files = _compose_files(workdir or ".", cmd)
+	if not files:
+		return _cached(
+			("svc-cli", key), _SVC_TTL,
+			lambda old: _scan_services_cli(workdir, cmd, old),
+		)
+	fp = (
+		tuple(files),
+		tuple(
+			os.path.getmtime(f) if os.path.isfile(f) else -1.0
+			for f in files
+		),
+	)
+	got = _svc_cache.get(key)
+	if got is not None and got[0] == fp:
+		return got[1]
+	old = got[1] if got is not None else set()
+	services: Set[str] = set()
+	for f in files:
+		try:
+			services |= _services_from_file(f, set())
+		except (OSError, yaml.YAMLError):
+			pass
+	services = services or old
+	_svc_cache[key] = (fp, services)
+	return services
+
+
+def _scan_services_cli(
+	workdir: str, cmd: str, old: Optional[Set[str]]
+) -> Set[str]:
 	try:
 		args = shlex.split(cmd)
 	except ValueError:
