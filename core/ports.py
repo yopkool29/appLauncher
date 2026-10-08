@@ -393,6 +393,24 @@ def _compose_files(workdir: str, cmd: str) -> List[str]:
 	]
 
 
+class _ComposeLoader(yaml.SafeLoader):
+	"""SafeLoader tolerant aux tags locaux inconnus (!reset,
+	!override... de la spec compose) : le tag est ignore, la
+	valeur construite normalement — safe_load jetterait sinon
+	un ConstructorError et le fichier entier serait saute."""
+
+
+def _unknown_tag(loader: yaml.Loader, tag_suffix: str, node: yaml.Node) -> Any:
+	if isinstance(node, yaml.MappingNode):
+		return loader.construct_mapping(node, deep=True)
+	if isinstance(node, yaml.SequenceNode):
+		return loader.construct_sequence(node, deep=True)
+	return loader.construct_scalar(node)
+
+
+_ComposeLoader.add_multi_constructor("!", _unknown_tag)
+
+
 def _include_paths(inc: Any) -> Any:
 	"""'include:' accepte str, liste de str, ou dicts avec 'path'
 	(lui-meme str ou liste)."""
@@ -412,7 +430,7 @@ def _services_from_file(path: str, seen: Set[str]) -> Set[str]:
 	if path in seen or len(seen) > 16:
 		return set()
 	seen.add(path)
-	data = yaml.safe_load(Path(path).read_text())
+	data = yaml.load(Path(path).read_text(), Loader=_ComposeLoader)
 	if not isinstance(data, dict):
 		return set()
 	svc = data.get("services")
