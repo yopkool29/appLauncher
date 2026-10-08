@@ -1,6 +1,7 @@
 """Scan des ports en ecoute et correspondance avec les processus et Docker."""
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import psutil
@@ -183,6 +185,105 @@ def docker_containers() -> List[dict]:
 
 
 def _scan_docker(old: Optional[List[dict]]) -> List[dict]:
+	"""API Engine /containers/json (~5ms sur socket unix, vs ~50ms
+	pour le CLI) ; repli sur `docker ps` si l'API est injoignable —
+	'old' garde la derniere liste connue si tout echoue."""
+	data = _docker_api("/containers/json")
+	if data is not None:
+		return [
+			_api_container(c) for c in data if isinstance(c, dict)
+		]
+	return _scan_docker_cli(old)
+
+
+class _UnixHTTPConnection(http.client.HTTPConnection):
+	"""HTTP sur socket unix : dockerd n'ecoute pas en TCP par defaut."""
+
+	def __init__(self, sock_path: str, timeout: float = 3.0) -> None:
+		super().__init__("localhost", timeout=timeout)
+		self._sock_path = sock_path
+
+	def connect(self) -> None:
+		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock.settimeout(self.timeout)
+		sock.connect(self._sock_path)
+		self.sock = sock
+
+
+def _docker_context() -> str:
+	"""Contexte courant : DOCKER_CONTEXT, sinon currentContext de
+	~/.docker/config.json."""
+	ctx = os.getenv("DOCKER_CONTEXT", "")
+	if ctx:
+		return ctx
+	try:
+		cfg = json.loads(
+			Path("~/.docker/config.json").expanduser().read_text()
+		)
+	except (OSError, json.JSONDecodeError):
+		return ""
+	return str(cfg.get("currentContext") or "")
+
+
+def _docker_conn() -> Optional[http.client.HTTPConnection]:
+	"""Endpoint resolu comme le CLI : contexte non-'default' ou
+	DOCKER_HOST non-http (ssh://, npipe://, https) -> None, le
+	caller retombe sur le CLI (endpoint reel inconnu : mieux vaut
+	un `docker ps` lent que des conteneurs d'un autre daemon)."""
+	ctx = _docker_context()
+	if ctx and ctx != "default":
+		return None
+	host = os.getenv("DOCKER_HOST", "")
+	if host.startswith(("tcp://", "http://")):
+		return http.client.HTTPConnection(
+			host.split("://", 1)[1], timeout=3.0
+		)
+	if host and not host.startswith("unix://"):
+		return None
+	return _UnixHTTPConnection(host[7:] or "/var/run/docker.sock")
+
+
+def _docker_api(path: str) -> Optional[list]:
+	"""GET sur l'API Engine ; None si le daemon ne repond pas en
+	HTTP local."""
+	conn = _docker_conn()
+	if conn is None:
+		return None
+	try:
+		conn.request("GET", path)
+		resp = conn.getresponse()
+		if resp.status != 200:
+			return None
+		data = json.loads(resp.read())
+		return data if isinstance(data, list) else None
+	except (OSError, http.client.HTTPException, json.JSONDecodeError):
+		return None
+	finally:
+		conn.close()
+
+
+def _api_container(c: dict) -> dict:
+	"""Entree /containers/json -> format interne : 'Names' porte un
+	'/' prefixe ("/web-1") ; 'PublicPort' absent = port expose non
+	publie ; 'Labels' arrive en dict (les valeurs avec virgule
+	cassaient le parsing de la chaine CLI)."""
+	labels = c.get("Labels") or {}
+	names = c.get("Names") or []
+	return {
+		"name": str(names[0]).lstrip("/") if names else "",
+		"image": str(c.get("Image", "")),
+		"host_ports": [
+			int(p["PublicPort"])
+			for p in c.get("Ports") or []
+			if isinstance(p, dict) and p.get("PublicPort") is not None
+		],
+		"workdir": labels.get("com.docker.compose.project.working_dir", ""),
+		"project": labels.get("com.docker.compose.project", ""),
+		"service": labels.get("com.docker.compose.service", ""),
+	}
+
+
+def _scan_docker_cli(old: Optional[List[dict]]) -> List[dict]:
 	"""`docker ps` parse ; 'old' garde la derniere liste connue si
 	la commande echoue (binaire absent, timeout)."""
 	try:
