@@ -25,5 +25,8 @@ dist/
 # Config locale personnelle (donnees utilisateur, pas du code)
 apps.yaml
 
+# Desktop entry local (chemins absolus de la machine)
+applauncher.desktop
+
 # Logs runtime
 logs/
