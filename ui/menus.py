@@ -247,36 +247,53 @@ class MenuMixin(tk.Tk):
 			menu.add_separator()
 			if app_urls(app):
 				item("Open URLs", partial(self._open_app_urls, app), "u")
+			# profiles declares au niveau app ou par un proc :
+			# radiobuttons -> _set_profile (verrouille si running)
+			profiles = app.profiles()
+			if profiles:
+				prof_menu = tk.Menu(menu, tearoff=0)
+				pvar = tk.StringVar(
+					value=app.profile or "default"
+				)
+				for pname in ["default"] + profiles:
+					prof_menu.add_radiobutton(
+						label=pname, variable=pvar, value=pname,
+						command=partial(
+							self._set_profile, app, pname
+						),
+					)
+				menu.add_cascade(label="Profile", menu=prof_menu)
 			item("Add process", partial(self._add_process, app))
 			item("Edit app", partial(self._edit_app, app), "e")
 			menu.add_separator()
 			item("Delete app", partial(self._del_app, app), "Del")
 		else:
 			_, app, proc = target
+			eff = proc.for_profile(app.profile)
 			item("Start", partial(self._start_procs, app, [proc]), "s")
 			item("Stop", partial(self._confirm_stop_procs, app, [proc]), "s")
 			item("Restart",
 			     partial(self._run_each, app, [proc], self.manager.restart), "r")
-			if proc.is_docker:
+			if eff.is_docker:
 				# rm -f + relance : repare les bindings de ports
 				# perdus cote docker (iptables flush, etc.)
 				item("Reset (docker)",
 				     partial(self._run_each, app, [proc],
 				             self.manager.reset))
-			if proc.browser_mode != "none":
-				if len(proc.ports) == 1:
-					item(f"Open :{proc.ports[0]}",
-					     partial(self._open_port, app, proc, proc.ports[0]), "u")
-				elif len(proc.ports) > 1:
+			if eff.browser_mode != "none":
+				if len(eff.ports) == 1:
+					item(f"Open :{eff.ports[0]}",
+					     partial(self._open_port, app, proc, eff.ports[0]), "u")
+				elif len(eff.ports) > 1:
 					open_menu = tk.Menu(menu, tearoff=0)
-					for p in proc.ports:
+					for p in eff.ports:
 						open_menu.add_command(
 							label=port_url(p).split("://", 1)[-1],
 							command=partial(self._open_port, app, proc, p),
 						)
 					self._pad_menu(open_menu)
 					menu.add_cascade(label="Open port", menu=open_menu)
-			if proc.tmux and tmux.TMUX_OK and tmux.session_exists(
+			if eff.tmux and tmux.TMUX_OK and tmux.session_exists(
 				tmux.session_name(app, self.apps)
 			):
 				menu.add_separator()

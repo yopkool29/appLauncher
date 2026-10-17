@@ -165,11 +165,13 @@ class TreeMixin(tk.Tk):
 				label, "", "", "",
 				", ".join(map(str, all_ports)), ""
 			)
-			disp = _strike(app.label) if app.exclude_all else app.label
+			disp = app.label + app.suffix()
+			if app.exclude_all:
+				disp = _strike(disp)
 			self._upsert(
 				app_iid, "", row,
 				text=f" {disp} ({n})",
-				image=self._dot(app.color) if app.color else "",
+				image=self._dot(app.eff("color")) if app.eff("color") else "",
 				values=values, tags=(color,),
 				open=app.name not in self._collapsed,
 			)
@@ -187,14 +189,21 @@ class TreeMixin(tk.Tk):
 				pids = ", ".join(map(str, st.pids[:3]))
 				if len(st.pids) > 3:
 					pids += ",…"
+				eff = proc.for_profile(app.profile)
+				# suffixe [profile] : uniquement si le proc a une
+				# variante pour le profile actif (sinon il tourne
+				# sa config de base)
+				pname = proc.name + (
+					app.suffix() if app.profile in proc.configs else ""
+				)
 				self._upsert(
 					proc_iid, app_iid, i,
-					text=f"   {proc.name}",
-					image=self._dot(proc.color) if proc.color else "",
+					text=f"   {pname}",
+					image=self._dot(eff.color) if eff.color else "",
 					values=(
 						plabel,
-						"☑" if proc.tmux else "☐",
-						_browser_cell(proc),
+						"☑" if eff.tmux else "☐",
+						_browser_cell(eff),
 						pids,
 						", ".join(map(str, st.ports)),
 						_fmt_uptime(st.uptime),
@@ -283,7 +292,14 @@ class TreeMixin(tk.Tk):
 		t = self._resolve(self.tree.identify_row(event.y))
 		if not t or t[0] != "proc":
 			return None
-		t[2].tmux = not t[2].tmux
+		app, proc = t[1], t[2]
+		if app.profile in proc.configs:
+			# profile actif avec override : le toggle porte sur la
+			# config (herite de la base si la cle etait absente)
+			ov = proc.configs[app.profile]
+			ov["tmux"] = not bool(ov.get("tmux", proc.tmux))
+		else:
+			proc.tmux = not proc.tmux
 		self._save()
 		return "break"
 

@@ -233,8 +233,9 @@ class ActionsMixin(tk.Tk):
 				)
 			return
 		_, app, proc = t
-		if proc.browser_mode != "none" and proc.ports:
-			self._open_port(app, proc, proc.ports[0])
+		eff = proc.for_profile(app.profile)
+		if eff.browser_mode != "none" and eff.ports:
+			self._open_port(app, proc, eff.ports[0])
 		else:
 			self._status_lbl.config(
 				text=f"{proc.name}: no urls to open"
@@ -328,7 +329,7 @@ class ActionsMixin(tk.Tk):
 
 	def _browser_for(self, app: App) -> str:
 		"""Navigateur de l'app si override, sinon le global toolbar."""
-		return app.browser or self._browser_var.get()
+		return app.eff("browser") or self._browser_var.get()
 
 	def _launch_proc_browser(self) -> None:
 		target = self._selection()
@@ -347,23 +348,25 @@ class ActionsMixin(tk.Tk):
 			def run_app() -> None:
 				self.manager.start_app(app)
 				self._maybe_attach(app)
-				if app.launch_port:
-					self._wait_port(app.launch_port)
+				lp = int(app.eff("launch_port") or 0)
+				if lp:
+					self._wait_port(lp)
 				self._open_app_urls(app)
 
 			self._run_action(run_app)
 			return
 		_, app, proc = target
-		if proc.browser_mode == "none":
+		eff = proc.for_profile(app.profile)
+		if eff.browser_mode == "none":
 			self._status_lbl.config(
 				text=f"{proc.name}: browser disabled"
 			)
 			return
-		port = proc.ports[0] if proc.ports else app.launch_port
+		port = eff.ports[0] if eff.ports else int(app.eff("launch_port") or 0)
 		if port:
 			url = port_url(port)
-		elif app.url:
-			url = app.url
+		elif app.eff("url"):
+			url = app.eff("url")
 		else:
 			self._status_lbl.config(
 				text=f"{proc.name}: no port configured"
@@ -379,7 +382,7 @@ class ActionsMixin(tk.Tk):
 			if port:
 				self._wait_port(port)
 			self._open_in_browser(
-				url, self._browser_for(app), proc.browser_mode == "tab",
+				url, self._browser_for(app), eff.browser_mode == "tab",
 			)
 
 		self._run_action(run)
@@ -399,7 +402,7 @@ class ActionsMixin(tk.Tk):
 		self._open_in_browser(
 			port_url(port),
 			self._browser_for(app),
-			proc.browser_mode == "tab",
+			proc.for_profile(app.profile).browser_mode == "tab",
 		)
 
 	def _open_in_browser(

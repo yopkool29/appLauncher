@@ -91,9 +91,10 @@ class LogsMixin(tk.Tk):
 		if app is None:
 			return
 		proc: Process = tab["proc"]
+		eff = proc.for_profile(app.profile)
 		tab["ts"] = time.time()
-		if proc.is_docker:
-			name = proc.name
+		if eff.is_docker:
+			name = eff.name
 			# pref 'docker_log_tail' : lignes demandees a docker logs
 			tail = load_pref("docker_log_tail", "150")
 			if not tail.isdigit() or int(tail) <= 0:
@@ -103,7 +104,7 @@ class LogsMixin(tk.Tk):
 				names = [
 					c["name"]
 					for c in portscan.containers_for_proc(
-						proc.name, proc.workdir or "", proc.cmd
+						eff.name, eff.workdir or "", eff.cmd
 					)
 				]
 				parts = []
@@ -126,7 +127,7 @@ class LogsMixin(tk.Tk):
 		path = self.manager.log_path(app, proc)
 		res = tail_file(path, LOG_TAIL_BYTES)
 		if res is None:
-			text = self._external_log(proc) or "(no log yet)"
+			text = self._external_log(eff) or "(no log yet)"
 		else:
 			text, tab["size"] = res
 		self._set_log_text(tab, text)
@@ -163,7 +164,7 @@ class LogsMixin(tk.Tk):
 		if tab is None or self._logs_app is None:
 			return
 		proc: Process = tab["proc"]
-		if proc.is_docker:
+		if proc.for_profile(self._logs_app.profile).is_docker:
 			# docker logs = subprocess couteux : 4s minimum entre reloads
 			if time.time() - tab.get("ts", 0.0) >= 4.0:
 				self._load_tab(tab)

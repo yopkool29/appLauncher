@@ -80,13 +80,14 @@ class PollMixin(tk.Tk):
 				port_owner = {}
 				for app in apps:
 					for proc in app.processes:
-						for p in set(proc.ports) | set(
+						eff = proc.for_profile(app.profile)
+						for p in set(eff.ports) | set(
 							statuses[(app.name, proc.name)].ports
 						):
 							port_owner[p] = app.name
-						if proc.is_docker:
+						if eff.is_docker:
 							for c in portscan.containers_for_proc(
-								proc.name, proc.workdir or "", proc.cmd
+								eff.name, eff.workdir or "", eff.cmd
 							):
 								for hp in c["host_ports"]:
 									port_owner[hp] = app.name

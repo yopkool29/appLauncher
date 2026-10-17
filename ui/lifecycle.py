@@ -156,7 +156,10 @@ class LifecycleMixin(tk.Tk):
 				for app in self.apps
 				for proc in app.processes
 				if self.manager.is_tracked(app, proc)
-				or any(portscan.port_listening(p) for p in proc.ports)
+				or any(
+					portscan.port_listening(p)
+					for p in proc.for_profile(app.profile).ports
+				)
 			]
 		deadline = time.time() + timeout
 		left = busy()
@@ -167,7 +170,9 @@ class LifecycleMixin(tk.Tk):
 			return
 		for app in self.apps:
 			for proc in app.processes:
-				for pid in portscan.pids_on_ports(proc.ports):
+				for pid in portscan.pids_on_ports(
+					proc.for_profile(app.profile).ports
+				):
 					try:
 						os.kill(pid, signal.SIGKILL)
 					except (ProcessLookupError, PermissionError):

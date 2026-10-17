@@ -1,18 +1,20 @@
 """Modal dialogs: app and process editing."""
 from __future__ import annotations
 
+import copy
 import locale
 import os
 import tkinter as tk
 from functools import partial
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, Generic, Optional, Tuple, TypeVar
+from typing import Callable, Dict, Generic, Optional, Tuple, TypeVar
 
 from core import ports as portscan
 from core import tmux
 from core.browser import browsers
 from core.config import (
-	App, Process, default_logs_dir, load_pref, save_pref,
+	DEFAULT_PROFILE, App, Process, default_logs_dir, load_pref,
+	save_pref, valid_profile,
 )
 from core.logging_helpers import tail_file
 
@@ -270,6 +272,7 @@ APP_COLORS = (
 class AppDialog(_Modal[App]):
 	def __init__(self, parent: tk.Misc, app: Optional[App] = None) -> None:
 		super().__init__(parent, "Edit app" if app else "New app")
+		self._app = app
 		self._name_var = tk.StringVar(value=app.name if app else "")
 		self._alias_var = tk.StringVar(value=app.alias if app else "")
 		self._url = tk.StringVar(value=app.url if app else "")
@@ -321,6 +324,42 @@ class AppDialog(_Modal[App]):
 			values=choices, width=40,
 		).grid(row=row, column=1, sticky=tk.W, pady=3)
 		row += 1
+		# configs nommees : le combo choisit le profile actif, Add
+		# cree une config app, Edit ouvre ses overrides (champs)
+		self._configs: Dict[str, dict] = copy.deepcopy(
+			app.configs if app else {}
+		)
+		names = set(self._configs)
+		if app:
+			for p in app.processes:
+				names.update(p.configs)
+		self._profile_var = tk.StringVar(
+			value=(app.profile if app else "") or DEFAULT_PROFILE
+		)
+		self._new_cfg = tk.StringVar()
+		ttk.Label(body, text="Config:").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		cf = ttk.Frame(body)
+		cf.grid(row=row, column=1, sticky=tk.W, pady=3)
+		self._cfg_combo = ttk.Combobox(
+			cf, textvariable=self._profile_var, state="readonly",
+			values=[DEFAULT_PROFILE] + sorted(names), width=12,
+		)
+		self._cfg_combo.pack(side=tk.LEFT)
+		ttk.Entry(cf, textvariable=self._new_cfg, width=10).pack(
+			side=tk.LEFT, padx=(8, 2)
+		)
+		ttk.Button(
+			cf, text="Add", width=4, command=self._cfg_add
+		).pack(side=tk.LEFT)
+		ttk.Button(
+			cf, text="Edit…", width=5, command=self._cfg_edit
+		).pack(side=tk.LEFT, padx=(6, 0))
+		ttk.Button(
+			cf, text="✕", width=3, command=self._cfg_del
+		).pack(side=tk.LEFT, padx=(4, 0))
+		row += 1
 		if tmux.TMUX_OK:
 			ttk.Label(body, text="tmux:").grid(
 				row=row, column=0, sticky=tk.W, pady=3
@@ -356,7 +395,69 @@ class AppDialog(_Modal[App]):
 
 		self._ok_cancel(body, row + 1)
 		self.bind("<Return>", lambda _e: self._ok())
+		self.bind("<e>", self._edit_key)
 		self.wait_window(self)
+
+	def _edit_key(self, e: tk.Event) -> None:
+		"""Raccourci 'e' = bouton Edit… — ignore quand on tape dans
+		un champ texte (sinon 'e' dans un Entry ouvrirait l'edit)."""
+		if isinstance(
+			e.widget, (tk.Entry, ttk.Entry, ttk.Combobox, ttk.Spinbox)
+		):
+			return
+		self._cfg_edit()
+
+	def _cfg_refresh(self) -> None:
+		names = set(self._configs)
+		app = self._app
+		if app is not None:
+			for p in app.processes:
+				names.update(p.configs)
+		self._cfg_combo.configure(
+			values=[DEFAULT_PROFILE] + sorted(names)
+		)
+
+	def _cfg_add(self) -> None:
+		name = self._new_cfg.get().strip()
+		if not name:
+			return
+		if name == DEFAULT_PROFILE or not valid_profile(name):
+			messagebox.showwarning(
+				"Config", f"Invalid config name: {name}", parent=self
+			)
+			return
+		self._configs.setdefault(name, {})
+		self._new_cfg.set("")
+		self._cfg_refresh()
+		self._profile_var.set(name)
+
+	def _cfg_edit(self) -> None:
+		name = self._profile_var.get()
+		if name == DEFAULT_PROFILE:
+			messagebox.showinfo(
+				"Config",
+				"'default' uses the main form fields.",
+				parent=self,
+			)
+			return
+		d = AppConfigDialog(self, name, self._configs.get(name, {}))
+		if d.result is not None:
+			self._configs[name] = d.result
+
+	def _cfg_del(self) -> None:
+		name = self._profile_var.get()
+		if name == DEFAULT_PROFILE or name not in self._configs:
+			return
+		if confirm(
+			self, "Delete",
+			f"Delete config '{name}'? Process overrides named "
+			f"'{name}' are removed on save too.",
+			bitmap="warning",
+		) != "yes":
+			return
+		del self._configs[name]
+		self._cfg_refresh()
+		self._profile_var.set(DEFAULT_PROFILE)
 
 	def _ok(self) -> None:
 		name = self._name_var.get().strip()
@@ -372,6 +473,7 @@ class AppDialog(_Modal[App]):
 				"App", f"Invalid launch port: {port_txt}", parent=self
 			)
 			return
+		profile = self._profile_var.get()
 		self.result = App(
 			name=name,
 			alias=self._alias_var.get().strip(),
@@ -386,13 +488,21 @@ class AppDialog(_Modal[App]):
 				"" if self._browser_sel.get() == "(default)"
 				else self._browser_sel.get()
 			),
+			profile="" if profile == DEFAULT_PROFILE else profile,
+			configs=self._configs,
 		)
 		self.destroy()
 
 
 class ProcessDialog(_Modal[Process]):
-	def __init__(self, parent: tk.Misc, proc: Optional[Process] = None) -> None:
+	def __init__(
+		self, parent: tk.Misc, proc: Optional[Process] = None,
+		profile: str = "",
+	) -> None:
 		super().__init__(parent, "Edit process" if proc else "New process")
+		self._configs: Dict[str, dict] = copy.deepcopy(
+			proc.configs if proc else {}
+		)
 		self._name_var = tk.StringVar(value=proc.name if proc else "")
 		self._cmd = tk.StringVar(value=proc.cmd if proc else "")
 		self._stop = tk.StringVar(value=proc.stop if proc else "")
@@ -475,10 +585,129 @@ class ProcessDialog(_Modal[Process]):
 			body, proc.color if proc else ""
 		)
 		cv.grid(row=crow, column=1, sticky=tk.W, pady=3)
+		# variantes nommees du proc : Add cree une config vide, Edit
+		# ouvre l'override selectionne (champ vide = herite)
+		crow += 1
+		ttk.Label(body, text="Configs:").grid(
+			row=crow, column=0, sticky=tk.W, pady=3
+		)
+		cf = ttk.Frame(body)
+		cf.grid(row=crow, column=1, sticky=tk.W, pady=3)
+		# pre-selectionne sur le profile actif de l'app : Edit
+		# ouvre directement la bonne variante (ou la cree)
+		self._cfg_sel = tk.StringVar(value=profile or DEFAULT_PROFILE)
+		self._pc_combo = ttk.Combobox(
+			cf, textvariable=self._cfg_sel,
+			values=[DEFAULT_PROFILE] + sorted(self._configs), width=12,
+		)
+		self._pc_combo.pack(side=tk.LEFT)
+		self._new_pc = tk.StringVar()
+		ttk.Entry(cf, textvariable=self._new_pc, width=10).pack(
+			side=tk.LEFT, padx=(8, 2)
+		)
+		ttk.Button(
+			cf, text="Add", width=4, command=self._pc_add
+		).pack(side=tk.LEFT)
+		ttk.Button(
+			cf, text="Edit…", width=5, command=self._pc_edit
+		).pack(side=tk.LEFT, padx=(6, 0))
+		ttk.Button(
+			cf, text="✕", width=3, command=self._pc_del
+		).pack(side=tk.LEFT, padx=(4, 0))
 
 		self._ok_cancel(body, crow + 1, colspan=3)
 		self.bind("<Return>", lambda _e: self._ok())
+		self.bind("<e>", self._edit_key)
 		self.wait_window(self)
+
+	def _edit_key(self, e: tk.Event) -> None:
+		"""Raccourci 'e' = bouton Edit… — ignore quand on tape dans
+		un champ texte."""
+		if isinstance(
+			e.widget, (tk.Entry, ttk.Entry, ttk.Combobox, ttk.Spinbox)
+		):
+			return
+		self._pc_edit()
+
+	def _base_override(self) -> dict:
+		"""Copie explicite des valeurs de base du formulaire —
+		sert de contenu initial a une nouvelle config."""
+		return {
+			"cmd": self._cmd.get().strip(),
+			"workdir": self._workdir.get().strip(),
+			"stop": self._stop.get().strip(),
+			"ports": [
+				int(c)
+				for c in self._ports.get().split(",")
+				if c.strip().isdigit()
+			],
+			"docker": self._docker.get(),
+			"tmux": self._tmux.get(),
+			"tmux_window": self._tmux_window.get(),
+			"browser_mode": _key_of(
+				BROWSER_MODES, self._browser_mode.get(), "window"
+			),
+			"color": self._get_color(),
+		}
+
+	def _pc_add(self) -> None:
+		name = self._new_pc.get().strip()
+		if not name:
+			return
+		if name == DEFAULT_PROFILE or not valid_profile(name):
+			messagebox.showwarning(
+				"Config", f"Invalid config name: {name}", parent=self
+			)
+			return
+		# nouvelle config = copie de la base : l'utilisateur n'a
+		# ensuite qu'a editer ce qui differe
+		self._configs.setdefault(name, self._base_override())
+		self._new_pc.set("")
+		self._pc_combo.configure(
+			values=[DEFAULT_PROFILE] + sorted(self._configs)
+		)
+		self._cfg_sel.set(name)
+
+	def _pc_edit(self) -> None:
+		name = self._cfg_sel.get().strip()
+		if not name or name == DEFAULT_PROFILE:
+			messagebox.showinfo(
+				"Config",
+				"'default' uses the main form fields.",
+				parent=self,
+			)
+			return
+		if not valid_profile(name):
+			messagebox.showwarning(
+				"Config", f"Invalid config name: {name}", parent=self
+			)
+			return
+		data = (
+			dict(self._configs[name])
+			if name in self._configs
+			else self._base_override()
+		)
+		d = ProcConfigDialog(self, name, data)
+		if d.result is not None:
+			self._configs[name] = d.result
+			self._pc_combo.configure(
+				values=[DEFAULT_PROFILE] + sorted(self._configs)
+			)
+
+	def _pc_del(self) -> None:
+		name = self._cfg_sel.get()
+		if name not in self._configs:
+			return
+		if confirm(
+			self, "Delete", f"Delete config '{name}'?",
+			bitmap="warning",
+		) != "yes":
+			return
+		del self._configs[name]
+		self._cfg_sel.set(DEFAULT_PROFILE)
+		self._pc_combo.configure(
+			values=[DEFAULT_PROFILE] + sorted(self._configs)
+		)
 
 	def _browse(self) -> None:
 		path = filedialog.askdirectory(parent=self)
@@ -515,7 +744,205 @@ class ProcessDialog(_Modal[Process]):
 				BROWSER_MODES, self._browser_mode.get(), "window"
 			),
 			color=self._get_color(),
+			configs=self._configs,
 		)
+		self.destroy()
+
+
+_INHERIT = "(inherit)"
+_INHERIT_YN = ("(inherit)", "yes", "no")
+
+
+def _tri(value) -> str:
+	"""bool/None -> '(inherit)'|'yes'|'no' (tri-state d'override)."""
+	if value is None:
+		return _INHERIT
+	return "yes" if value else "no"
+
+
+def _tri_back(label: str) -> Optional[bool]:
+	if label == "yes":
+		return True
+	if label == "no":
+		return False
+	return None
+
+
+class ProcConfigDialog(_Modal[dict]):
+	"""Override d'une config de processus — champ vide = herite de
+	la config de base (cmd, workdir, stop, ports, docker, tmux,
+	tmux_window, browser_mode, color)."""
+
+	def __init__(self, parent: tk.Misc, name: str, data: dict) -> None:
+		super().__init__(parent, f"Config '{name}' — empty = inherit")
+		self._vars = {
+			k: tk.StringVar(value=str(data.get(k) or ""))
+			for k in ("cmd", "workdir", "stop", "tmux_window")
+		}
+		self._ports = tk.StringVar(
+			value=", ".join(str(p) for p in data.get("ports") or [])
+		)
+		self._docker = tk.StringVar(value=_tri(data.get("docker")))
+		self._tmux = tk.StringVar(value=_tri(data.get("tmux")))
+		self._color_init = str(data.get("color") or "")
+		self._browser_mode = tk.StringVar(
+			value=BROWSER_MODES.get(
+				str(data.get("browser_mode") or ""), _INHERIT
+			)
+		)
+
+		body = ttk.Frame(self, padding=12)
+		body.pack(fill=tk.BOTH, expand=True)
+		rows = [
+			("Command:", "cmd"),
+			("Stop:", "stop"),
+			("Directory:", "workdir"),
+		]
+		for row, (label, key) in enumerate(rows):
+			ttk.Label(body, text=label).grid(
+				row=row, column=0, sticky=tk.W, pady=3
+			)
+			ttk.Entry(body, textvariable=self._vars[key], width=48).grid(
+				row=row, column=1, pady=3, sticky=tk.EW
+			)
+		row = len(rows)
+		ttk.Label(body, text="Ports (comma-sep):").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		ttk.Entry(body, textvariable=self._ports, width=48).grid(
+			row=row, column=1, pady=3, sticky=tk.EW
+		)
+		for label, var in (
+			("Docker process:", self._docker),
+			("Run in tmux:", self._tmux),
+		):
+			row += 1
+			ttk.Label(body, text=label).grid(
+				row=row, column=0, sticky=tk.W, pady=3
+			)
+			ttk.Combobox(
+				body, textvariable=var, state="readonly",
+				values=_INHERIT_YN, width=10,
+			).grid(row=row, column=1, sticky=tk.W, pady=3)
+		row += 1
+		ttk.Label(body, text="tmux window:").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		ttk.Spinbox(
+			body, from_=0, to=19, width=4,
+			textvariable=self._vars["tmux_window"],
+		).grid(row=row, column=1, sticky=tk.W, pady=3)
+		row += 1
+		ttk.Label(body, text="Browser:").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		ttk.Combobox(
+			body, textvariable=self._browser_mode, state="readonly",
+			values=[_INHERIT] + list(BROWSER_MODES.values()), width=22,
+		).grid(row=row, column=1, sticky=tk.W, pady=3)
+		row += 1
+		ttk.Label(body, text="Color:").grid(
+			row=row, column=0, sticky=tk.W, pady=3
+		)
+		cv, self._get_color = _color_picker(body, self._color_init)
+		cv.grid(row=row, column=1, sticky=tk.W, pady=3)
+		self._ok_cancel(body, row + 1)
+		self.bind("<Return>", lambda _e: self._ok())
+		self.wait_window(self)
+
+	def _ok(self) -> None:
+		out: dict = {}
+		for key, var in self._vars.items():
+			v = var.get().strip()
+			if not v:
+				continue
+			if key == "tmux_window":
+				try:
+					out[key] = int(v)
+				except ValueError:
+					messagebox.showwarning(
+						"Config", "Invalid tmux window index",
+						parent=self,
+					)
+					return
+			else:
+				out[key] = v
+		chunks = [
+			c.strip() for c in self._ports.get().split(",") if c.strip()
+		]
+		try:
+			ports = [int(c) for c in chunks]
+		except ValueError:
+			bad = next((c for c in chunks if not c.isdecimal()), chunks[0])
+			messagebox.showwarning(
+				"Config", f"Invalid port: {bad}", parent=self
+			)
+			return
+		if ports:
+			out["ports"] = ports
+		for key, var in (("docker", self._docker), ("tmux", self._tmux)):
+			b = _tri_back(var.get())
+			if b is not None:
+				out[key] = b
+		bmode = _key_of(BROWSER_MODES, self._browser_mode.get(), "")
+		if bmode:
+			out["browser_mode"] = bmode
+		color = self._get_color().strip()
+		if color:
+			out["color"] = color
+		self.result = out
+		self.destroy()
+
+
+class AppConfigDialog(_Modal[dict]):
+	"""Override d'une config d'app — vide = herite (url,
+	launch_port, alias)."""
+
+	def __init__(self, parent: tk.Misc, name: str, data: dict) -> None:
+		super().__init__(parent, f"Config '{name}' — empty = inherit")
+		self._vars = {
+			k: tk.StringVar(value=str(data.get(k) or ""))
+			for k in ("url", "launch_port", "alias")
+		}
+		body = ttk.Frame(self, padding=12)
+		body.pack(fill=tk.BOTH, expand=True)
+		for row, key in enumerate(("url", "launch_port", "alias")):
+			ttk.Label(body, text=key + ":").grid(
+				row=row, column=0, sticky=tk.W, pady=3
+			)
+			ttk.Entry(body, textvariable=self._vars[key], width=42).grid(
+				row=row, column=1, pady=3
+			)
+		ttk.Label(body, text="color:").grid(
+			row=3, column=0, sticky=tk.W, pady=3
+		)
+		cv, self._get_color = _color_picker(
+			body, str(data.get("color") or "")
+		)
+		cv.grid(row=3, column=1, sticky=tk.W, pady=3)
+		self._ok_cancel(body, 4)
+		self.bind("<Return>", lambda _e: self._ok())
+		self.wait_window(self)
+
+	def _ok(self) -> None:
+		out: dict = {}
+		lp = self._vars["launch_port"].get().strip()
+		if lp:
+			try:
+				out["launch_port"] = int(lp)
+			except ValueError:
+				messagebox.showwarning(
+					"Config", f"Invalid launch port: {lp}", parent=self
+				)
+				return
+		for key in ("url", "alias"):
+			v = self._vars[key].get().strip()
+			if v:
+				out[key] = v
+		color = self._get_color().strip()
+		if color:
+			out["color"] = color
+		self.result = out
 		self.destroy()
 
 

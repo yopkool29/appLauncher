@@ -2,6 +2,7 @@
 # mypy: disable-error-code="attr-defined,has-type"
 from __future__ import annotations
 
+import copy
 import dataclasses
 import logging
 import tkinter as tk
@@ -11,7 +12,9 @@ from tkinter import messagebox
 from typing import List, Optional
 
 from core import tmux
-from core.config import App, Process, load_config, save_config
+from core.config import (
+	DEFAULT_PROFILE, App, Process, load_config, save_config,
+)
 from core.manager import STATUS_EXTERNAL, STATUS_RUNNING
 from ui.dialogs import AppDialog, L, ProcessDialog, confirm
 
@@ -34,7 +37,7 @@ class EditMixin(tk.Tk):
 		if app is None:
 			messagebox.showinfo("Process", "Select an app first.")
 			return
-		dialog = ProcessDialog(self)
+		dialog = ProcessDialog(self, profile=app.profile)
 		if dialog.result:
 			app.processes.append(dialog.result)
 			self._save()
@@ -44,14 +47,40 @@ class EditMixin(tk.Tk):
 		dialog = AppDialog(self, app)
 		if dialog.result:
 			r = dialog.result
+			# switch de profile via le combo Config: : meme verrou
+			# que _set_profile — sinon cmd/ports changeraient sous
+			# les procs actifs
+			blocked = (
+				self._running_overridden(app, r.profile)
+				if r.profile != app.profile
+				else []
+			)
+			if blocked:
+				names = ", ".join(p.name for p in blocked)
+				messagebox.showwarning(
+					"Profile",
+					f"Cannot switch {app.label} to "
+					f"'{r.profile or DEFAULT_PROFILE}': stop these "
+					f"processes first: {names}",
+					parent=self,
+				)
+				r.profile = app.profile
 			old_layout = app.tmux_layout
+			removed = set(app.configs) - set(r.configs)
 			# tout sauf processes (edites a part)
 			for f in (
 				"name", "alias", "url", "tmux_layout", "launch_port",
 				"tmux_attach", "tmux_shared", "exclude_all", "color",
-				"browser",
+				"browser", "profile", "configs",
 			):
 				setattr(app, f, getattr(r, f))
+			# config supprimee : cascade sur les overrides des procs
+			if removed:
+				for p in app.processes:
+					for name in removed:
+						p.configs.pop(name, None)
+				if app.profile in removed:
+					app.profile = ""
 			self._save()
 			# layout change : retile les fenetres tmux tout de suite,
 			# sans redemarrer les procs qui tournent
@@ -69,7 +98,7 @@ class EditMixin(tk.Tk):
 					tmux.retile(session, w, app.tmux_layout)
 
 	def _edit_proc(self, app: App, proc: Process) -> None:
-		dialog = ProcessDialog(self, proc)
+		dialog = ProcessDialog(self, proc, profile=app.profile)
 		if dialog.result:
 			idx = app.processes.index(proc)
 			app.processes[idx] = dialog.result
@@ -86,11 +115,47 @@ class EditMixin(tk.Tk):
 			i += 1
 			name = f"{proc.name}-copy{i}"
 		dup = dataclasses.replace(
-			proc, name=name, ports=list(proc.ports)
+			proc, name=name, ports=list(proc.ports),
+			configs=copy.deepcopy(proc.configs),
 		)
 		app.processes.insert(app.processes.index(proc) + 1, dup)
 		self._save()
 		self._refresh_log_tabs(app)
+
+	def _running_overridden(
+		self, app: App, target: str
+	) -> List[Process]:
+		"""Procs tournant dont la config changerait au switch : ceux
+		avec un override pour le profile actif OU le profile cible.
+		Les procs sans override tournent la meme cmd dans les deux
+		modes -> ils ne bloquent pas le switch."""
+		return [
+			p for p in app.processes
+			if (app.profile in p.configs or target in p.configs)
+			and self._state_of(app, p) in (STATUS_RUNNING, STATUS_EXTERNAL)
+		]
+
+	def _set_profile(self, app: App, profile: str) -> None:
+		"""Bascule le profile actif de l'app (menu Profile / Edit).
+		Verrouille tant qu'un proc concerne tourne : un switch a
+		chaud changerait ses cmd/ports resolus."""
+		if profile == DEFAULT_PROFILE:
+			profile = ""
+		if profile == app.profile:
+			return
+		blocked = self._running_overridden(app, profile)
+		if blocked:
+			names = ", ".join(p.name for p in blocked)
+			messagebox.showwarning(
+				"Profile",
+				f"Cannot switch {app.label} to "
+				f"'{profile or DEFAULT_PROFILE}': stop these "
+				f"processes first: {names}",
+				parent=self,
+			)
+			return
+		app.profile = profile
+		self._save()
 
 	def _edit_selection(self) -> None:
 		target = self._selection()

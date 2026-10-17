@@ -98,6 +98,7 @@ class ProcessManager:
 		return tmux.find_pane_anywhere(app.name, proc.name)
 
 	def is_tracked(self, app: App, proc: Process) -> bool:
+		proc = proc.for_profile(app.profile)
 		rt = self._runtimes.get((app.name, proc.name))
 		if rt is not None:
 			return self._rt_alive(rt)
@@ -139,6 +140,7 @@ class ProcessManager:
 
 	def pid_tree(self, app: App, proc: Process) -> List[int]:
 		"""PID racine + tous les enfants (recursif) du processus lance."""
+		proc = proc.for_profile(app.profile)
 		rt = self._runtimes.get((app.name, proc.name))
 		pid = 0
 		if rt is not None and self._rt_alive(rt):
@@ -197,6 +199,7 @@ class ProcessManager:
 		return True, msg
 
 	def start(self, app: App, proc: Process) -> Tuple[bool, str]:
+		proc = proc.for_profile(app.profile)
 		key = (app.name, proc.name)
 		if self.is_tracked(app, proc):
 			return False, f"{proc.name}: already running"
@@ -257,6 +260,7 @@ class ProcessManager:
 		return True, msg
 
 	def stop(self, app: App, proc: Process) -> Tuple[bool, str]:
+		proc = proc.for_profile(app.profile)
 		key = (app.name, proc.name)
 		rt = self._runtimes.get(key)
 		log.info(f"stop requested: {app.name}/{proc.name}")
@@ -266,7 +270,10 @@ class ProcessManager:
 			try:
 				# {port} = premier port declare (ou launch_port de
 				# l'app) : stop: "fuser -k {port}/tcp"
-				port = proc.ports[0] if proc.ports else app.launch_port
+				port = (
+					proc.ports[0] if proc.ports
+					else app.eff("launch_port")
+				)
 				stop_cmd = (
 					proc.stop.replace("{port}", str(port))
 					if port else proc.stop
@@ -352,6 +359,7 @@ class ProcessManager:
 		return ok, msg
 
 	def restart(self, app: App, proc: Process) -> Tuple[bool, str]:
+		proc = proc.for_profile(app.profile)
 		self.stop(app, proc)
 		if self._wait_ports_free(proc, 1.0):
 			# port encore pris apres la mort du proc : squatteur
@@ -364,6 +372,7 @@ class ProcessManager:
 		"""Reset : supprime les containers docker du proc avant de
 		relancer — repare les bindings de ports perdus (flush
 		iptables, restart partiel du daemon). Non-docker = restart."""
+		proc = proc.for_profile(app.profile)
 		if proc.is_docker:
 			names = [
 				c["name"]
@@ -408,6 +417,7 @@ class ProcessManager:
 
 	def stop_external(self, app: App, proc: Process) -> Tuple[bool, str]:
 		"""Tue les processus externes ecoutant sur les ports declares."""
+		proc = proc.for_profile(app.profile)
 		pids = portscan.pids_on_ports(proc.ports)
 		log.info(
 			f"stop_external {app.name}/{proc.name}: "
@@ -461,6 +471,7 @@ class ProcessManager:
 				self.stop_app(app)
 
 	def status(self, app: App, proc: Process) -> ProcStatus:
+		proc = proc.for_profile(app.profile)
 		rt = self._runtimes.get((app.name, proc.name))
 		tree = self.pid_tree(app, proc)
 		detected: List[int] = portscan.ports_for_pids(tree) if tree else []

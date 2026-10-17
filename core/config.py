@@ -1,14 +1,46 @@
 """Chargement et sauvegarde du catalogue d'applications (YAML)."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import yaml
+
+DEFAULT_PROFILE = "default"
+
+# champs overridables dans une config de processus
+_PROC_OVERRIDE_FIELDS = (
+	"cmd", "workdir", "stop", "ports", "docker", "tmux",
+	"tmux_window", "browser_mode", "color",
+)
+
+# champs overridables dans une config d'app
+_APP_OVERRIDE_FIELDS = ("url", "launch_port", "alias", "color")
+
+
+PROFILE_MAX_LEN = 10
+
+
+def valid_profile(name: str) -> bool:
+	return len(name) <= PROFILE_MAX_LEN and bool(
+		re.fullmatch(r"[A-Za-z0-9_.-]+", name)
+	)
+
+
+def _configs(data) -> Dict[str, dict]:
+	"""configs: du yaml -> {profile: {champ: valeur}}. 'default' est
+	la config de base (le dict lui-meme) : jamais une cle ici."""
+	out: Dict[str, dict] = {}
+	for k, v in (data or {}).items():
+		k = str(k)
+		if k != DEFAULT_PROFILE and valid_profile(k):
+			out[k] = v if isinstance(v, dict) else {}
+	return out
 
 
 def safe_name(name: str) -> str:
@@ -27,6 +59,9 @@ class Process:
 	tmux_window: int = 0
 	browser_mode: str = "window"  # window | tab | none (Open masque)
 	color: str = ""  # hex "#rrggbb" -> carre colore dans le tree
+	# variantes nommees : {profile: {champ: valeur}} — un champ absent
+	# herite de la config de base (le reste du dict)
+	configs: Dict[str, dict] = field(default_factory=dict)
 
 	def __post_init__(self) -> None:
 		self.workdir = os.path.expandvars(os.path.expanduser(self.workdir))
@@ -34,6 +69,30 @@ class Process:
 	@property
 	def is_docker(self) -> bool:
 		return self.docker or "docker" in self.cmd
+
+	def for_profile(self, profile: str) -> "Process":
+		"""Le proc tel qu'il s'execute sous 'profile' : champs
+		overrides appliques. Idempotent (copie sans configs)."""
+		ov = self.configs.get(profile, None)
+		if not profile or profile == DEFAULT_PROFILE or ov is None:
+			return self
+		p = dataclasses.replace(
+			self, configs={}, ports=list(self.ports)
+		)
+		for f in _PROC_OVERRIDE_FIELDS:
+			if f not in ov or ov[f] is None:
+				continue
+			v = ov[f]
+			if f == "ports":
+				p.ports = [int(x) for x in (v or [])]
+			elif f in ("docker", "tmux"):
+				setattr(p, f, bool(v))
+			elif f == "tmux_window":
+				p.tmux_window = int(v or 0)
+			else:
+				setattr(p, f, str(v))
+		p.__post_init__()  # workdir de l'override : expande ~/$VAR
+		return p
 
 	@staticmethod
 	def from_dict(data: dict) -> "Process":
@@ -52,6 +111,7 @@ class Process:
 			tmux_window=int(data.get("tmux_window", 0) or 0),
 			browser_mode=bmode,
 			color=str(data.get("color", "") or ""),
+			configs=_configs(data.get("configs")),
 		)
 
 	def to_dict(self) -> dict:
@@ -67,6 +127,7 @@ class Process:
 				self.browser_mode if self.browser_mode != "window" else ""
 			),
 			"color": self.color,
+			"configs": self.configs or None,
 		}.items():
 			if val:
 				data[key] = val
@@ -87,11 +148,39 @@ class App:
 	exclude_all: bool = False  # True: ignoree par Start all / Stop all
 	color: str = ""  # hex "#rrggbb" -> petit carre colore dans le tree
 	browser: str = ""  # override du navigateur global ("" = toolbar)
+	profile: str = ""  # profile actif ("" = 'default')
+	# variantes nommees de l'app : {profile: {champ: valeur}}
+	configs: Dict[str, dict] = field(default_factory=dict)
 
 	@property
 	def label(self) -> str:
 		"""Nom d'affichage : alias s'il est pose, sinon name."""
-		return self.alias or self.name
+		return self.eff("alias") or self.name
+
+	def suffix(self) -> str:
+		"""Suffixe [profile] pour l'affichage — vide en default."""
+		p = self.profile
+		return "" if not p or p == DEFAULT_PROFILE else f"[{p}]"
+
+	def profiles(self) -> List[str]:
+		"""Profiles existants : ceux declares au niveau app + ceux
+		definis par les procs (union triee, 'default' exclu)."""
+		out = set(self.configs)
+		for p in self.processes:
+			out.update(p.configs)
+		return sorted(out)
+
+	def eff(self, key: str):
+		"""Champ effectif sous le profile actif (override ou base)."""
+		if self.profile and self.profile != DEFAULT_PROFILE:
+			ov = self.configs.get(self.profile)
+			if ov is not None and key in ov:
+				return ov[key]
+		return getattr(self, key)
+
+	def effective_procs(self) -> List[Process]:
+		"""Procs resolus sous le profile actif (ordre conserve)."""
+		return [p.for_profile(self.profile) for p in self.processes]
 
 	@staticmethod
 	def from_dict(data: dict) -> "App":
@@ -107,6 +196,8 @@ class App:
 			exclude_all=bool(data.get("exclude_all", False)),
 			color=str(data.get("color", "") or ""),
 			browser=str(data.get("browser", "") or ""),
+			profile=str(data.get("profile", "") or ""),
+			configs=_configs(data.get("configs")),
 		)
 
 	def to_dict(self) -> dict:
@@ -120,9 +211,12 @@ class App:
 			"exclude_all": self.exclude_all,
 			"color": self.color,
 			"browser": self.browser,
+			"configs": self.configs or None,
 		}.items():
 			if val:
 				data[key] = val
+		if self.profile and self.profile != DEFAULT_PROFILE:
+			data["profile"] = self.profile
 		if not self.tmux_attach:
 			data["tmux_attach"] = False
 		data["processes"] = [p.to_dict() for p in self.processes]
@@ -152,6 +246,12 @@ TEMPLATE = """# App Launcher catalog
 #                                          # (manual start/stop only)
 #     color: "#1e90ff"                    # optional: colored square shown
 #                                          # next to the app in the tree
+#     profile: "prod"                      # optional: active config
+#                                          # ('default' when omitted)
+#     configs:                             # optional: named app configs
+#       prod:                              #   each = field overrides
+#         url: "http://localhost:4173"     #   (url, launch_port, alias,
+#         launch_port: 4173                #    color)
 #     processes:
 #       - name: "api"
 #         cmd: "python3 -m http.server 8000"
@@ -177,6 +277,12 @@ TEMPLATE = """# App Launcher catalog
 #         workdir: "/path/to/project"
 #         ports: [8080, 5432]
 #         docker: true
+#         configs:                         # optional: named variants;
+#           prod:                          #   a field absent here
+#             cmd: "docker compose -f docker-compose.prod.yml up -d"  # inherits the base config
+#             stop: "docker compose -f docker-compose.prod.yml down"  # (cmd, workdir, stop, ports,
+#             ports: [8081]                #   docker, tmux, tmux_window,
+#                                          #   browser_mode, color)
 apps: []
 """
 

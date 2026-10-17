@@ -83,7 +83,9 @@ def port_url(port: int) -> str:
 def app_urls(app: App) -> List[Tuple[str, bool]]:
 	"""URLs ouvertes par 'Open URLs' / Launch : url + launch_port de
 	l'app en tete (fenetre), puis chaque port des procs dont le mode
-	browser n'est pas 'none' (dans leur propre mode). Dedoublonne."""
+	browser n'est pas 'none' (dans leur propre mode). Dedoublonne.
+	Champs resolus sous le profile actif de l'app."""
+	procs = app.effective_procs()
 	urls: List[Tuple[str, bool]] = []
 	seen = set()
 
@@ -96,7 +98,7 @@ def app_urls(app: App) -> List[Tuple[str, bool]]:
 	# app-level qui pointeraient dessus — 'manual' ne s'ouvre que via
 	# Open :port sur le processus, jamais avec Open URLs
 	blocked = {
-		p for proc in app.processes
+		p for proc in procs
 		if proc.browser_mode in ("none", "manual")
 		for p in proc.ports
 	}
@@ -107,16 +109,18 @@ def app_urls(app: App) -> List[Tuple[str, bool]]:
 		onglet, sinon fenetre par defaut)."""
 		return any(
 			port in proc.ports and proc.browser_mode == "tab"
-			for proc in app.processes
+			for proc in procs
 		)
 
-	m = re.search(r":(\d+)(?:[/:?#]|$)", app.url)
+	url = app.eff("url")
+	launch_port = int(app.eff("launch_port") or 0)
+	m = re.search(r":(\d+)(?:[/:?#]|$)", str(url))
 	url_port = int(m.group(1)) if m else 0
-	if app.url and url_port not in blocked:
-		add(app.url, port_tab(url_port))
-	if app.launch_port and app.launch_port not in blocked:
-		add(port_url(app.launch_port), port_tab(app.launch_port))
-	for proc in app.processes:
+	if url and url_port not in blocked:
+		add(url, port_tab(url_port))
+	if launch_port and launch_port not in blocked:
+		add(port_url(launch_port), port_tab(launch_port))
+	for proc in procs:
 		if proc.browser_mode in ("none", "manual"):
 			continue
 		for p in proc.ports:
