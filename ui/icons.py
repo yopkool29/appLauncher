@@ -12,6 +12,7 @@ _FONT_CANDIDATES = (
 	"/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
 	"/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
 	"/usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf",
+	"/usr/share/fonts/noto/NotoColorEmoji.ttf",
 )
 
 

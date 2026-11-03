@@ -28,6 +28,13 @@ pip install -r requirements.txt   # PyYAML + psutil + sv_ttk + pystray + Pillow
 python3 applauncher.py
 ```
 
+Requires a Tk with fontconfig/Xft — the distro package
+(`sudo pacman -S tk` / `sudo apt install python3-tk`).
+Standalone CPython builds (uv, pyenv, python-build-standalone) ship a
+Tk without it: the UI then falls back to the bitmap `fixed` font.
+Toolbar icons are colored when `noto-fonts-emoji` is installed,
+plain glyphs otherwise.
+
 To launch it from your desktop menu instead, copy
 [`applauncher.desktop`](applauncher.desktop) (example — fix the
 `Exec`/`Icon` paths) to `~/.local/share/applications/`.
